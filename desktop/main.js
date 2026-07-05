@@ -608,13 +608,18 @@ app.on('ready', async () => {
 
   // ─── PDF Print / Physical Print Handler ───────────────────────────────────
   ipcMain.handle('print-invoice-pdf', async (_event, html, invoiceNo) => {
-    const { response } = await dialog.showMessageBox({
+    const parentWin = mainWindow || null;
+    const msgBoxOptions = {
       type: 'question',
       buttons: ['Save as PDF (Download)', 'Print (Physical Printer)', 'Cancel'],
       defaultId: 0,
       title: `Invoice ${invoiceNo}`,
       message: `What would you like to do with Invoice ${invoiceNo}?`,
-    });
+    };
+
+    const { response } = parentWin
+      ? await dialog.showMessageBox(parentWin, msgBoxOptions)
+      : await dialog.showMessageBox(msgBoxOptions);
 
     if (response === 2) return { success: false, error: 'Cancelled' };
 
@@ -631,6 +636,9 @@ app.on('ready', async () => {
     fs.writeFileSync(tempFilePath, html);
     await invoiceWin.loadURL(`file://${tempFilePath}`);
 
+    // Allow rendering time for CSS/images/watermarks
+    await new Promise(resolve => setTimeout(resolve, 500));
+
     try {
       if (response === 0) {
         // Save as PDF (Download)
@@ -640,11 +648,15 @@ app.on('ready', async () => {
           printBackground: true,
         });
 
-        const { canceled, filePath } = await dialog.showSaveDialog({
+        const saveOptions = {
           title: 'Save Invoice PDF',
           defaultPath: path.join(app.getPath('downloads'), `Invoice-${invoiceNo}.pdf`),
           filters: [{ name: 'PDF Files', extensions: ['pdf'] }],
-        });
+        };
+
+        const { canceled, filePath } = parentWin
+          ? await dialog.showSaveDialog(parentWin, saveOptions)
+          : await dialog.showSaveDialog(saveOptions);
 
         if (!canceled && filePath) {
           fs.writeFileSync(filePath, pdfData);
@@ -666,13 +678,18 @@ app.on('ready', async () => {
 
   // ─── Generic HTML Print Handler (Statements, etc.) ───────────────────────
   ipcMain.handle('print-html', async (_event, html, title) => {
-    const { response } = await dialog.showMessageBox({
+    const parentWin = mainWindow || null;
+    const msgBoxOptions = {
       type: 'question',
       buttons: ['Save as PDF (Download)', 'Print (Physical Printer)', 'Cancel'],
       defaultId: 0,
       title: title || 'Document Options',
       message: `What would you like to do with this document?`,
-    });
+    };
+
+    const { response } = parentWin
+      ? await dialog.showMessageBox(parentWin, msgBoxOptions)
+      : await dialog.showMessageBox(msgBoxOptions);
 
     if (response === 2) return { success: false, error: 'Cancelled' };
 
@@ -689,6 +706,9 @@ app.on('ready', async () => {
     fs.writeFileSync(tempFilePath, html);
     await printWin.loadURL(`file://${tempFilePath}`);
 
+    // Allow rendering time for CSS/images/watermarks
+    await new Promise(resolve => setTimeout(resolve, 500));
+
     try {
       if (response === 0) {
         const pdfData = await printWin.webContents.printToPDF({
@@ -698,11 +718,15 @@ app.on('ready', async () => {
         });
 
         const safeTitle = (title || 'document').replace(/[^a-z0-9]/gi, '_').toLowerCase();
-        const { canceled, filePath } = await dialog.showSaveDialog({
+        const saveOptions = {
           title: 'Save PDF Document',
           defaultPath: path.join(app.getPath('downloads'), `${safeTitle}.pdf`),
           filters: [{ name: 'PDF Files', extensions: ['pdf'] }],
-        });
+        };
+
+        const { canceled, filePath } = parentWin
+          ? await dialog.showSaveDialog(parentWin, saveOptions)
+          : await dialog.showSaveDialog(saveOptions);
 
         if (!canceled && filePath) {
           fs.writeFileSync(filePath, pdfData);
