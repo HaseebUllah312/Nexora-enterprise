@@ -13,14 +13,15 @@ export class UsersService {
   ) {}
 
   async create(dto: CreateUserDto) {
-    const existing = await this.prisma.user.findUnique({ where: { email: dto.email } });
+    const email = dto.email ? dto.email.trim().toLowerCase() : dto.email;
+    const existing = await this.prisma.user.findUnique({ where: { email } });
     if (existing) throw new ConflictException('A user with this email already exists');
 
     const passwordHash = await this.authService.hashPassword(dto.password);
     const { password, ...rest } = dto;
 
     const user = await this.prisma.user.create({
-      data: { ...rest, passwordHash },
+      data: { ...rest, email, passwordHash },
       include: { role: true, branch: true },
     });
     const { passwordHash: _, ...safe } = user;
@@ -53,13 +54,17 @@ export class UsersService {
 
   async update(id: string, dto: UpdateUserDto) {
     const existing = await this.findOne(id);
-    if (dto.email && dto.email.toLowerCase() !== existing.email.toLowerCase()) {
-      const emailTaken = await this.prisma.user.findUnique({ where: { email: dto.email } });
-      if (emailTaken) throw new ConflictException('A user with this email already exists');
+    const updateData = { ...dto };
+    if (updateData.email) {
+      updateData.email = updateData.email.trim().toLowerCase();
+      if (updateData.email !== existing.email.toLowerCase()) {
+        const emailTaken = await this.prisma.user.findUnique({ where: { email: updateData.email } });
+        if (emailTaken) throw new ConflictException('A user with this email already exists');
+      }
     }
     const user = await this.prisma.user.update({
       where: { id },
-      data: dto,
+      data: updateData,
       include: { role: true, branch: true },
     });
     const { passwordHash, ...safe } = user;

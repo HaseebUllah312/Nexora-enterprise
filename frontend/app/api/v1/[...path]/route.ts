@@ -744,8 +744,9 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ pat
   // PUBLIC ROUTES
   if (route === 'auth/login') {
     try {
+      const email = typeof body.email === 'string' ? body.email.trim().toLowerCase() : body.email;
       const user = await prisma.user.findUnique({
-        where: { email: body.email },
+        where: { email },
         include: { role: true },
       });
 
@@ -1041,9 +1042,10 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ pat
     if (route === 'users') {
       const salt = await bcrypt.genSalt(12);
       const passwordHash = await bcrypt.hash(body.password, salt);
+      const email = typeof body.email === 'string' ? body.email.trim().toLowerCase() : body.email;
       const u = await prisma.user.create({
         data: {
-          email: body.email,
+          email,
           phone: body.phone,
           passwordHash,
           firstName: body.firstName,
@@ -1237,9 +1239,13 @@ export async function PATCH(req: NextRequest, { params }: { params: Promise<{ pa
 
     // Update user
     if (path[0] === 'users' && path.length === 2) {
+      const updateData = { ...body };
+      if (typeof updateData.email === 'string') {
+        updateData.email = updateData.email.trim().toLowerCase();
+      }
       const updated = await prisma.user.update({
         where: { id: path[1] },
-        data: body,
+        data: updateData,
       });
       const { passwordHash: _, ...safeUser } = updated;
       return corsResponse(safeUser);
