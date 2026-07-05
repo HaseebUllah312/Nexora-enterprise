@@ -1,0 +1,104 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <title>Nexora Enterprise</title>
+  <style>
+    * { margin: 0; padding: 0; box-sizing: border-box; }
+    body {
+      font-family: 'Segoe UI', system-ui, -apple-system, sans-serif;
+      background: transparent;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      height: 100vh;
+      overflow: hidden;
+      -webkit-app-region: drag;
+    }
+    .splash {
+      background: linear-gradient(145deg, #0f172a 0%, #1e293b 50%, #0f172a 100%);
+      border-radius: 20px;
+      padding: 48px 56px;
+      text-align: center;
+      box-shadow: 0 25px 60px rgba(0,0,0,0.5), 0 0 0 1px rgba(255,255,255,0.05);
+      position: relative;
+      overflow: hidden;
+      width: 420px;
+    }
+    .splash::before {
+      content: '';
+      position: absolute;
+      top: -50%;
+      left: -50%;
+      width: 200%;
+      height: 200%;
+      background: conic-gradient(from 0deg, transparent, rgba(59,130,246,0.1), transparent, rgba(139,92,246,0.1), transparent);
+      animation: rotate 4s linear infinite;
+    }
+    @keyframes rotate { to { transform: rotate(360deg); } }
+    .content { position: relative; z-index: 1; }
+    .logo {
+      font-size: 48px;
+      margin-bottom: 16px;
+      animation: pulse 2s ease-in-out infinite;
+    }
+    @keyframes pulse {
+      0%, 100% { transform: scale(1); }
+      50% { transform: scale(1.05); }
+    }
+    h1 {
+      color: #f8fafc;
+      font-size: 24px;
+      font-weight: 700;
+      margin-bottom: 6px;
+      letter-spacing: -0.5px;
+    }
+    .subtitle {
+      color: #94a3b8;
+      font-size: 13px;
+      margin-bottom: 32px;
+    }
+    .loader {
+      width: 200px;
+      height: 3px;
+      background: rgba(255,255,255,0.08);
+      border-radius: 3px;
+      margin: 0 auto 16px;
+      overflow: hidden;
+    }
+    .loader-bar {
+      width: 40%;
+      height: 100%;
+      background: linear-gradient(90deg, #3b82f6, #8b5cf6, #3b82f6);
+      background-size: 200% 100%;
+      border-radius: 3px;
+      animation: loading 1.5s ease-in-out infinite;
+    }
+    @keyframes loading {
+      0% { transform: translateX(-100%); background-position: 0% 0%; }
+      50% { background-position: 100% 0%; }
+      100% { transform: translateX(350%); background-position: 0% 0%; }
+    }
+    .status {
+      color: #64748b;
+      font-size: 12px;
+      animation: statusPulse 2s ease-in-out infinite;
+    }
+    @keyframes statusPulse {
+      0%, 100% { opacity: 0.6; }
+      50% { opacity: 1; }
+    }
+  </style>
+</head>
+<body>
+  <div class="splash">
+    <div class="content">
+      <div class="logo">🏭</div>
+      <h1>Nexora Enterprise</h1>
+      <p class="subtitle">Enterprise Resource Planning System</p>
+      <div class="loader"><div class="loader-bar"></div></div>
+      <p class="status">Starting services...</p>
+    </div>
+  </div>
+</body>
+</html>

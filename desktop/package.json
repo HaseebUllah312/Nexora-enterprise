@@ -1,0 +1,82 @@
+{
+  "name": "nexora-enterprise-desktop",
+  "version": "1.0.0",
+  "description": "Nexora Enterprise — Desktop Application",
+  "main": "main.js",
+  "author": "HM Nexora",
+  "license": "UNLICENSED",
+  "scripts": {
+    "start": "electron .",
+    "build": "node build.js",
+    "dist": "electron-builder",
+    "build-and-dist": "node build.js && electron-builder"
+  },
+  "dependencies": {
+    "@prisma/client": "^5.22.0",
+    "electron-is-dev": "^2.0.0"
+  },
+  "devDependencies": {
+    "electron": "^28.2.0",
+    "electron-builder": "^24.9.1",
+    "prisma": "^5.22.0"
+  },
+  "build": {
+    "appId": "com.nexora.enterprise",
+    "productName": "Nexora Enterprise",
+    "copyright": "Copyright © 2026 HM Nexora",
+    "asar": false,
+    "includeSubNodeModules": true,
+    "directories": {
+      "output": "release"
+    },
+    "files": [
+      "main.js",
+      "preload.js",
+      "splash.html",
+      "backend-dist/**/*",
+      "backend-node_modules/**/*",
+      "backend-prisma/**/*",
+      "frontend-standalone/**/*",
+      {
+        "from": "frontend-standalone/node_modules",
+        "to": "frontend-standalone/node_modules",
+        "filter": [
+          "**/*"
+        ]
+      },
+      "node-bin/**/*",
+      ".env.defaults"
+    ],
+    "extraResources": [
+      {
+        "from": "backend-prisma/",
+        "to": "prisma",
+        "filter": [
+          "**/*"
+        ]
+      }
+    ],
+    "win": {
+      "target": [
+        {
+          "target": "nsis",
+          "arch": [
+            "x64"
+          ]
+        }
+      ]
+    },
+    "nsis": {
+      "oneClick": false,
+      "perMachine": true,
+      "allowToChangeInstallationDirectory": true,
+      "createDesktopShortcut": true,
+      "createStartMenuShortcut": true,
+      "shortcutName": "Nexora Enterprise",
+      "include": "installer.nsh"
+    }
+  },
+  "allowScripts": {
+    "electron@28.3.3": true
+  }
+}

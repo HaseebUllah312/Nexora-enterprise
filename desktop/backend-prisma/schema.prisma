@@ -1,0 +1,754 @@
+// FactoryERP Pro — Database Schema
+// Phase 1: Auth, Users, Roles, Branches are fully wired into the NestJS app.
+// All other models below are defined now (so the schema is stable and FKs
+// don't need to be retrofitted later) but their modules/services are not
+// yet implemented in Phase 1 — that's Phase 2+.
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "sqlite"
+  url      = env("DATABASE_URL")
+}
+
+// =====================================================================
+// AUTH / RBAC
+// =====================================================================
+
+
+
+model Role {
+  id          String       @id @default(uuid())
+  name        String       @unique // SUPER_ADMIN, OWNER, FACTORY_MANAGER, BRANCH_MANAGER,
+                                    // WAREHOUSE_MANAGER, SALES_MANAGER, SALES_STAFF,
+                                    // ACCOUNTANT, PRODUCTION_MANAGER, DRIVER, EMPLOYEE
+  description String?
+  isSystem    Boolean      @default(false) // system roles can't be deleted
+  permissions RolePermission[]
+  users       User[]
+  createdAt   DateTime     @default(now())
+  updatedAt   DateTime     @updatedAt
+
+  @@map("roles")
+}
+
+model Permission {
+  id          String           @id @default(uuid())
+  code        String           @unique // e.g. "sales.invoice.create"
+  module      String           // e.g. "sales", "inventory", "accounting"
+  description String?
+  roles       RolePermission[]
+
+  @@map("permissions")
+}
+
+model RolePermission {
+  roleId       String
+  permissionId String
+  role         Role       @relation(fields: [roleId], references: [id], onDelete: Cascade)
+  permission   Permission @relation(fields: [permissionId], references: [id], onDelete: Cascade)
+
+  @@id([roleId, permissionId])
+  @@map("role_permissions")
+}
+
+model User {
+  id              String        @id @default(uuid())
+  email           String        @unique
+  phone           String?
+  passwordHash    String
+  firstName       String
+  lastName        String
+  status          String    @default("ACTIVE")
+  roleId          String
+  role            Role          @relation(fields: [roleId], references: [id])
+  branchId        String?
+  branch          Branch?       @relation(fields: [branchId], references: [id])
+  refreshTokens   RefreshToken[]
+  auditLogs       AuditLog[]
+  createdSales    SalesOrder[]      @relation("SalesOrderCreatedBy")
+  createdPurchase PurchaseOrder[]   @relation("PurchaseOrderCreatedBy")
+  attendance      Attendance[]
+  employee        Employee?
+  lastLoginAt     DateTime?
+  createdAt       DateTime      @default(now())
+  updatedAt       DateTime      @updatedAt
+
+  @@index([branchId])
+  @@index([roleId])
+  @@map("users")
+}
+
+model RefreshToken {
+  id        String   @id @default(uuid())
+  tokenHash String   @unique
+  userId    String
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  expiresAt DateTime
+  revoked   Boolean  @default(false)
+  createdAt DateTime @default(now())
+
+  @@index([userId])
+  @@map("refresh_tokens")
+}
+
+model AuditLog {
+  id         String   @id @default(uuid())
+  userId     String?
+  user       User?    @relation(fields: [userId], references: [id])
+  action     String   // e.g. "CREATE", "UPDATE", "DELETE", "LOGIN"
+  entity     String   // e.g. "SalesInvoice"
+  entityId   String?
+  metadata   String?
+  ipAddress  String?
+  createdAt  DateTime @default(now())
+
+  @@index([userId])
+  @@index([entity, entityId])
+  @@map("audit_logs")
+}
+
+// =====================================================================
+// BRANCHES / WAREHOUSES
+// =====================================================================
+
+model Branch {
+  id          String       @id @default(uuid())
+  name        String
+  code        String       @unique
+  address     String?
+  city        String?
+  phone       String?
+  isMainBranch Boolean     @default(false)
+  isActive    Boolean      @default(true)
+  users       User[]
+  warehouses  Warehouse[]
+  stock       Stock[]
+  customers   Customer[]
+  suppliers   Supplier[]
+  salesOrders SalesOrder[]
+  purchaseOrders PurchaseOrder[]
+  productionOrders ProductionOrder[]
+  accounts    Account[]
+  employees   Employee[]
+  vehicles    Vehicle[]
+  companySettings CompanySettings?
+  saleReturns     SaleReturn[]
+  purchaseReturns PurchaseReturn[]
+  expenses        Expense[]
+  deliveryChallans DeliveryChallan[]
+  transfersFrom StockTransfer[] @relation("TransferFromBranch")
+  transfersTo   StockTransfer[] @relation("TransferToBranch")
+  createdAt   DateTime     @default(now())
+  updatedAt   DateTime     @updatedAt
+
+  @@map("branches")
+}
+
+model Warehouse {
+  id        String   @id @default(uuid())
+  name      String
+  code      String   @unique
+  branchId  String
+  branch    Branch   @relation(fields: [branchId], references: [id])
+  isGodown  Boolean  @default(false)
+  stock     Stock[]
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([branchId])
+  @@map("warehouses")
+}
+
+// =====================================================================
+// PRODUCTS / INVENTORY
+// =====================================================================
+
+model Category {
+  id        String     @id @default(uuid())
+  name      String
+  parentId  String?
+  parent    Category?  @relation("CategoryToCategory", fields: [parentId], references: [id])
+  children  Category[] @relation("CategoryToCategory")
+  products  Product[]
+
+  @@map("categories")
+}
+
+model Product {
+  id            String   @id @default(uuid())
+  sku           String   @unique
+  productCode   String   @unique
+  barcode       String?  @unique
+  qrCode        String?  @unique
+  name          String
+  categoryId    String?
+  category      Category? @relation(fields: [categoryId], references: [id])
+  brand         String?
+  size          String?
+  unit          String   // e.g. PCS, KG, METER
+  purchasePrice Decimal  
+  salePrice     Decimal  
+  openingStock  Decimal  @default(0) 
+  minimumStock  Decimal  @default(0) 
+  isRawMaterial Boolean  @default(false)
+  isActive      Boolean  @default(true)
+  stock         Stock[]
+  stockMovements StockMovement[]
+  bomComponents BomComponent[]
+  bomFinished   Bom[]            @relation("BomFinishedProduct")
+  salesOrderItems SalesOrderItem[]
+  purchaseOrderItems PurchaseOrderItem[]
+  createdAt     DateTime @default(now())
+  updatedAt     DateTime @updatedAt
+
+  @@index([categoryId])
+  @@map("products")
+}
+
+model Stock {
+  id          String    @id @default(uuid())
+  productId   String
+  product     Product   @relation(fields: [productId], references: [id])
+  branchId    String
+  branch      Branch    @relation(fields: [branchId], references: [id])
+  warehouseId String
+  warehouse   Warehouse @relation(fields: [warehouseId], references: [id])
+  quantity    Decimal   @default(0) 
+  batchNumber String?
+  serialNumber String?
+  updatedAt   DateTime  @updatedAt
+
+  @@unique([productId, warehouseId, batchNumber])
+  @@index([branchId])
+  @@map("stock")
+}
+
+
+
+model StockMovement {
+  id          String            @id @default(uuid())
+  productId   String
+  product     Product           @relation(fields: [productId], references: [id])
+  type        String
+  quantity    Decimal           
+  referenceType String?         // "SalesInvoice", "PurchaseInvoice", "StockTransfer", etc.
+  referenceId String?
+  notes       String?
+  createdAt   DateTime          @default(now())
+
+  @@index([productId])
+  @@map("stock_movements")
+}
+
+
+
+model StockTransfer {
+  id           String         @id @default(uuid())
+  transferNo   String         @unique
+  fromBranchId String
+  fromBranch   Branch         @relation("TransferFromBranch", fields: [fromBranchId], references: [id])
+  toBranchId   String
+  toBranch     Branch         @relation("TransferToBranch", fields: [toBranchId], references: [id])
+  status       String @default("REQUESTED")
+  items        String           // [{ productId, quantity }]
+  requestedAt  DateTime       @default(now())
+  approvedAt   DateTime?
+  dispatchedAt DateTime?
+  receivedAt   DateTime?
+
+  @@map("stock_transfers")
+}
+
+// =====================================================================
+// CUSTOMERS / SUPPLIERS
+// =====================================================================
+
+model Customer {
+  id          String       @id @default(uuid())
+  name        String
+  address     String?
+  phone       String?
+  email       String?
+  taxNumber   String?
+  creditLimit Decimal      @default(0) 
+  balance     Decimal      @default(0) 
+  branchId    String
+  branch      Branch       @relation(fields: [branchId], references: [id])
+  salesOrders SalesOrder[]
+  createdAt   DateTime     @default(now())
+  updatedAt   DateTime     @updatedAt
+
+  @@index([branchId])
+  @@map("customers")
+}
+
+model Supplier {
+  id              String          @id @default(uuid())
+  name            String
+  address         String?
+  phone           String?
+  email           String?
+  taxNumber       String?
+  balance         Decimal         @default(0) 
+  branchId        String
+  branch          Branch          @relation(fields: [branchId], references: [id])
+  purchaseOrders  PurchaseOrder[]
+  createdAt       DateTime        @default(now())
+  updatedAt       DateTime        @updatedAt
+
+  @@index([branchId])
+  @@map("suppliers")
+}
+
+// =====================================================================
+// SALES
+// =====================================================================
+
+
+
+model SalesOrder {
+  id          String           @id @default(uuid())
+  orderNo     String           @unique
+  customerId  String
+  customer    Customer         @relation(fields: [customerId], references: [id])
+  branchId    String
+  branch      Branch           @relation(fields: [branchId], references: [id])
+  status      String @default("QUOTATION")
+  items       SalesOrderItem[]
+  invoice     SalesInvoice?
+  challan     DeliveryChallan?
+  createdById String
+  createdBy   User             @relation("SalesOrderCreatedBy", fields: [createdById], references: [id])
+  createdAt   DateTime         @default(now())
+  updatedAt   DateTime         @updatedAt
+
+  @@index([branchId])
+  @@index([customerId])
+  @@map("sales_orders")
+}
+
+model SalesOrderItem {
+  id           String     @id @default(uuid())
+  salesOrderId String
+  salesOrder   SalesOrder @relation(fields: [salesOrderId], references: [id], onDelete: Cascade)
+  productId    String
+  product      Product    @relation(fields: [productId], references: [id])
+  quantity     Decimal    
+  unitPrice    Decimal    
+  discount     Decimal    @default(0) 
+
+  @@map("sales_order_items")
+}
+
+
+
+model SalesInvoice {
+  id           String        @id @default(uuid())
+  invoiceNo    String        @unique
+  salesOrderId String        @unique
+  salesOrder   SalesOrder    @relation(fields: [salesOrderId], references: [id])
+  totalAmount  Decimal       
+  saleReturns  SaleReturn[]
+  paidAmount   Decimal       @default(0) 
+  paymentMethod String @default("CASH")
+  dueDate      DateTime?
+  taxRate      Decimal       @default(0) 
+  taxAmount    Decimal       @default(0) 
+  createdAt    DateTime      @default(now())
+
+  @@map("sales_invoices")
+}
+
+// =====================================================================
+// PURCHASE
+// =====================================================================
+
+
+
+model PurchaseOrder {
+  id          String              @id @default(uuid())
+  orderNo     String              @unique
+  supplierId  String
+  supplier    Supplier            @relation(fields: [supplierId], references: [id])
+  branchId    String
+  branch      Branch              @relation(fields: [branchId], references: [id])
+  status      String @default("REQUISITION")
+  items       PurchaseOrderItem[]
+  invoice     PurchaseInvoice?
+  createdById String
+  createdBy   User                @relation("PurchaseOrderCreatedBy", fields: [createdById], references: [id])
+  createdAt   DateTime            @default(now())
+  updatedAt   DateTime            @updatedAt
+
+  @@index([branchId])
+  @@index([supplierId])
+  @@map("purchase_orders")
+}
+
+model PurchaseOrderItem {
+  id              String        @id @default(uuid())
+  purchaseOrderId String
+  purchaseOrder   PurchaseOrder @relation(fields: [purchaseOrderId], references: [id], onDelete: Cascade)
+  productId       String
+  product         Product       @relation(fields: [productId], references: [id])
+  quantity        Decimal       
+  unitCost        Decimal       
+
+  @@map("purchase_order_items")
+}
+
+model PurchaseInvoice {
+  id              String        @id @default(uuid())
+  invoiceNo       String        @unique
+  purchaseOrderId String        @unique
+  purchaseOrder   PurchaseOrder @relation(fields: [purchaseOrderId], references: [id])
+  totalAmount     Decimal       
+  purchaseReturns PurchaseReturn[]
+  paidAmount      Decimal       @default(0) 
+  createdAt       DateTime      @default(now())
+
+  @@map("purchase_invoices")
+}
+
+// =====================================================================
+// MANUFACTURING (BOM / PRODUCTION)
+// =====================================================================
+
+model Bom {
+  id                String         @id @default(uuid())
+  finishedProductId String
+  finishedProduct   Product        @relation("BomFinishedProduct", fields: [finishedProductId], references: [id])
+  name              String
+  components        BomComponent[]
+  productionOrders  ProductionOrder[]
+  createdAt         DateTime       @default(now())
+
+  @@map("boms")
+}
+
+model BomComponent {
+  id        String  @id @default(uuid())
+  bomId     String
+  bom       Bom     @relation(fields: [bomId], references: [id], onDelete: Cascade)
+  productId String  // raw material
+  product   Product @relation(fields: [productId], references: [id])
+  quantity  Decimal 
+
+  @@map("bom_components")
+}
+
+
+
+model ProductionOrder {
+  id           String                 @id @default(uuid())
+  orderNo      String                 @unique
+  bomId        String
+  bom          Bom                    @relation(fields: [bomId], references: [id])
+  branchId     String
+  branch       Branch                 @relation(fields: [branchId], references: [id])
+  quantityPlanned Decimal             
+  quantityProduced Decimal            @default(0) 
+  wastage      Decimal                @default(0) 
+  status       String  @default("PLANNED")
+  startedAt    DateTime?
+  completedAt  DateTime?
+  createdAt    DateTime               @default(now())
+
+  @@index([branchId])
+  @@map("production_orders")
+}
+
+// =====================================================================
+// ACCOUNTING
+// =====================================================================
+
+
+
+model Account {
+  id          String        @id @default(uuid())
+  name        String
+  type        String
+  branchId    String
+  branch      Branch        @relation(fields: [branchId], references: [id])
+  balance     Decimal       @default(0) 
+  transactions Transaction[]
+  createdAt   DateTime      @default(now())
+
+  @@index([branchId])
+  @@map("accounts")
+}
+
+
+
+model Transaction {
+  id          String          @id @default(uuid())
+  accountId   String
+  account     Account         @relation(fields: [accountId], references: [id])
+  type        String
+  amount      Decimal         
+  description String?
+  referenceType String?
+  referenceId String?
+  createdAt   DateTime        @default(now())
+
+  @@index([accountId])
+  @@map("transactions")
+}
+
+// =====================================================================
+// HR / EMPLOYEES
+// =====================================================================
+
+model Employee {
+  id          String       @id @default(uuid())
+  userId      String?      @unique
+  user        User?        @relation(fields: [userId], references: [id])
+  name        String
+  designation String?
+  branchId    String
+  branch      Branch       @relation(fields: [branchId], references: [id])
+  salary      Decimal      @default(0) 
+  joinDate    DateTime?
+  attendance  Attendance[]
+  salarySlips SalarySlip[]
+  createdAt   DateTime     @default(now())
+
+  @@index([branchId])
+  @@map("employees")
+}
+
+
+
+model Attendance {
+  id         String           @id @default(uuid())
+  employeeId String
+  employee   Employee         @relation(fields: [employeeId], references: [id])
+  userId     String?
+  user       User?            @relation(fields: [userId], references: [id])
+  date       DateTime         
+  status     String
+  checkIn    DateTime?
+  checkOut   DateTime?
+
+  @@unique([employeeId, date])
+  @@map("attendance")
+}
+
+// =====================================================================
+// VEHICLES / DELIVERIES
+// =====================================================================
+
+model Vehicle {
+  id           String       @id @default(uuid())
+  plateNumber  String       @unique
+  model        String?
+  branchId     String
+  branch       Branch       @relation(fields: [branchId], references: [id])
+  driverName   String?
+  deliveries       Delivery[]
+  deliveryChallans DeliveryChallan[]
+  logs             VehicleLog[]
+  createdAt        DateTime     @default(now())
+
+  @@index([branchId])
+  @@map("vehicles")
+}
+
+model Delivery {
+  id          String   @id @default(uuid())
+  vehicleId   String
+  vehicle     Vehicle  @relation(fields: [vehicleId], references: [id])
+  route       String?
+  deliveredAt DateTime?
+  status      String   @default("PENDING")
+  createdAt   DateTime @default(now())
+
+  @@map("deliveries")
+}
+
+// =====================================================================
+// NOTIFICATIONS
+// =====================================================================
+
+
+
+model Notification {
+  id        String           @id @default(uuid())
+  userId    String?
+  type      String
+  title     String
+  message   String
+  isRead    Boolean          @default(false)
+  createdAt DateTime         @default(now())
+
+  @@index([userId])
+  @@map("notifications")
+}
+
+// =====================================================================
+// COMPANY SETTINGS (per branch — printed on invoices)
+// =====================================================================
+
+model CompanySettings {
+  id           String   @id @default(uuid())
+  branchId     String   @unique
+  branch       Branch   @relation(fields: [branchId], references: [id])
+  companyName  String   @default("FactoryERP Pro")
+  tagline      String?
+  address      String?
+  city         String?
+  phone        String?
+  mobile       String?
+  email        String?
+  website      String?
+  ntn          String?           // National Tax Number
+  strn         String?           // Sales Tax Registration Number
+  bankName     String?
+  bankAccount  String?
+  bankIBAN     String?
+  invoicePrefix String  @default("INV")
+  invoiceCounter Int    @default(1)
+  currency     String   @default("PKR")
+  taxRate      Float    @default(0)  // GST % e.g. 17
+  termsAndConditions String?
+  showSignatures Boolean  @default(true)
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
+
+  @@map("company_settings")
+}
+
+// =====================================================================
+// SALE RETURNS (Credit Notes)
+// =====================================================================
+
+model SaleReturn {
+  id          String   @id @default(uuid())
+  returnNo    String   @unique
+  invoiceId   String
+  invoice     SalesInvoice @relation(fields: [invoiceId], references: [id])
+  reason      String
+  items       String     // [{ productId, productName, quantity, unitPrice }]
+  totalAmount Decimal  
+  branchId    String
+  branch      Branch   @relation(fields: [branchId], references: [id])
+  createdAt   DateTime @default(now())
+
+  @@map("sale_returns")
+}
+
+// =====================================================================
+// PURCHASE RETURNS (Debit Notes)
+// =====================================================================
+
+model PurchaseReturn {
+  id          String   @id @default(uuid())
+  returnNo    String   @unique
+  invoiceId   String
+  invoice     PurchaseInvoice @relation(fields: [invoiceId], references: [id])
+  reason      String
+  items       String
+  totalAmount Decimal  
+  branchId    String
+  branch      Branch   @relation(fields: [branchId], references: [id])
+  createdAt   DateTime @default(now())
+
+  @@map("purchase_returns")
+}
+
+// =====================================================================
+// EXPENSES
+// =====================================================================
+
+model Expense {
+  id          String   @id @default(uuid())
+  expenseNo   String   @unique
+  title       String
+  category    String   // UTILITIES, RENT, SALARY, TRANSPORT, MAINTENANCE, OTHER
+  amount      Decimal  
+  paidFrom    String   // CASH | BANK
+  branchId    String
+  branch      Branch   @relation(fields: [branchId], references: [id])
+  description String?
+  receiptUrl  String?
+  expenseDate DateTime @default(now())
+  createdAt   DateTime @default(now())
+
+  @@index([branchId])
+  @@map("expenses")
+}
+
+// =====================================================================
+// DELIVERY CHALLANS
+// =====================================================================
+
+model DeliveryChallan {
+  id          String   @id @default(uuid())
+  challanNo   String   @unique
+  salesOrderId String   @unique
+  salesOrder  SalesOrder @relation(fields: [salesOrderId], references: [id])
+  vehicleId   String?
+  vehicle     Vehicle? @relation(fields: [vehicleId], references: [id])
+  driverName  String?
+  deliveredTo String?
+  items       String
+  status      String   @default("PENDING") // PENDING | DELIVERED | RETURNED
+  branchId    String
+  branch      Branch   @relation(fields: [branchId], references: [id])
+  createdAt   DateTime @default(now())
+  deliveredAt DateTime?
+
+  @@map("delivery_challans")
+}
+
+model VehicleLog {
+  id          String   @id @default(uuid())
+  vehicleId   String
+  vehicle     Vehicle  @relation(fields: [vehicleId], references: [id])
+  type        String   // FUEL | MAINTENANCE
+  amount      Decimal  
+  odometer    Int?
+  description String?
+  logDate     DateTime @default(now())
+  createdAt   DateTime @default(now())
+
+  @@map("vehicle_logs")
+}
+
+model SalarySlip {
+  id          String   @id @default(uuid())
+  slipNo      String   @unique
+  employeeId  String
+  employee    Employee @relation(fields: [employeeId], references: [id])
+  month       Int
+  year        Int
+  basicSalary Decimal  
+  bonus       Decimal  @default(0) 
+  deductions  Decimal  @default(0) 
+  netSalary   Decimal  
+  paidOn      DateTime?
+  status      String   @default("PENDING") // PENDING | PAID
+  createdAt   DateTime @default(now())
+
+  @@unique([employeeId, month, year])
+  @@map("salary_slips")
+}
+
+// =====================================================================
+// OFFLINE SYNCHRONIZATION LOGS
+// =====================================================================
+
+model SyncLog {
+  id         String   @id @default(uuid())
+  modelName  String
+  recordId   String
+  action     String   // CREATE, UPDATE, DELETE
+  payload    String?  // JSON stringified record data (null for DELETE)
+  synced     Boolean  @default(false)
+  createdAt  DateTime @default(now())
+
+  @@map("_sync_logs")
+}
