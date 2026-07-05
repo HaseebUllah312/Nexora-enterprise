@@ -88,6 +88,19 @@ export async function GET(req: NextRequest, { params }: { params: Promise<{ path
   try {
     const route = path.join('/');
 
+    if (route.startsWith('sync/')) {
+      try {
+        const response = await fetch(`http://localhost:4000/api/v1/${route}`, {
+          method: 'GET',
+          headers: { 'Content-Type': 'application/json' },
+        });
+        const data = await response.json();
+        return corsResponse(data, response.status);
+      } catch (err: any) {
+        return errorResponse('Local synchronization backend offline', 503);
+      }
+    }
+
     // ─── DASHBOARD MODULE ───────────────────────────────────────────────────
     if (route === 'dashboard/summary') {
       const today = new Date(); today.setHours(0,0,0,0);
@@ -801,6 +814,20 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ pat
       return corsResponse(tokens);
     } catch (err) {
       return errorResponse('Invalid or expired refresh token', 401);
+    }
+  }
+
+  if (route.startsWith('sync/')) {
+    try {
+      const response = await fetch(`http://localhost:4000/api/v1/${route}`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(body),
+      });
+      const data = await response.json();
+      return corsResponse(data, response.status);
+    } catch (err: any) {
+      return errorResponse('Local synchronization backend offline', 503);
     }
   }
 

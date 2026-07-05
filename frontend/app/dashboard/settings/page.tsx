@@ -1,6 +1,6 @@
 'use client';
-import { useState } from 'react';
-import { User, Lock, Globe, Bell, CheckCircle, Eye, EyeOff, Database } from 'lucide-react';
+import { useState, useEffect } from 'react';
+import { User, Lock, Globe, Bell, CheckCircle, Eye, EyeOff, Database, RefreshCw, Save } from 'lucide-react';
 import { getCurrentUser } from '@/lib/auth';
 import { ThemeToggle } from '@/components/layout/theme-toggle';
 import { api } from '@/lib/api';
@@ -21,6 +21,12 @@ export default function SettingsPage() {
 
   TABS.push({ key:'backup', label:'Backup & Restore', icon:Database });
 
+  // Show Cloud Sync tab only if running inside desktop app or localhost
+  const isDesktop = typeof window !== 'undefined' && ((window as any).electronAPI || window.location.hostname === 'localhost');
+  if (isDesktop) {
+    TABS.push({ key:'sync', label:'Cloud Sync Settings', icon:RefreshCw });
+  }
+
   return (
     <div className="flex gap-6 max-w-4xl">
       <aside className="w-52 shrink-0">
@@ -40,6 +46,7 @@ export default function SettingsPage() {
         {tab==='appearance'    && <AppearanceTab/>}
         {tab==='notifications' && <NotificationsTab/>}
         {tab==='backup'        && <BackupTab/>}
+        {tab==='sync'          && <SyncTab/>}
       </div>
     </div>
   );
@@ -337,6 +344,184 @@ function BackupTab() {
               className="mt-2 w-full rounded-md border border-red-500 text-red-500 px-4 py-2.5 text-sm font-semibold hover:bg-red-500/10 disabled:opacity-50 transition-colors"
             >
               {loading ? 'Processing...' : 'Restore Backup'}
+            </button>
+          </div>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function SyncTab() {
+  const [loading, setLoading] = useState(false);
+  const [syncing, setSyncing] = useState(false);
+  const [success, setSuccess] = useState('');
+  const [error, setError] = useState('');
+
+  const [status, setStatus] = useState({
+    enabled: false,
+    unsyncedCount: 0,
+    syncedCount: 0,
+    syncTargetUrl: '',
+    supabaseDbUrl: '',
+  });
+
+  const [form, setForm] = useState({
+    syncTargetUrl: '',
+    syncSecret: '',
+    supabaseDbUrl: '',
+  });
+
+  useEffect(() => {
+    fetchStatus();
+  }, []);
+
+  async function fetchStatus() {
+    try {
+      const res = await api.get<any>('/sync/status');
+      setStatus(res);
+      setForm({
+        syncTargetUrl: res.syncTargetUrl,
+        syncSecret: '',
+        supabaseDbUrl: res.supabaseDbUrl,
+      });
+    } catch (err: any) {
+      setError(err.message || 'Failed to fetch cloud sync status.');
+    }
+  }
+
+  async function handleSaveConfig() {
+    setLoading(true); setSuccess(''); setError('');
+    try {
+      if (!form.syncTargetUrl) throw new Error('Sync Target URL is required.');
+      if (!form.supabaseDbUrl) throw new Error('Supabase Cloud Database URL is required.');
+
+      const res = await api.post<any>('/sync/config', form);
+      setSuccess(res.message || 'Sync settings saved successfully! Please restart the desktop app.');
+      fetchStatus();
+    } catch (err: any) {
+      setError(err.message || 'Failed to save configuration');
+    } finally {
+      setLoading(false);
+    }
+  }
+
+  async function handleTriggerSync() {
+    setSyncing(true); setSuccess(''); setError('');
+    try {
+      const res = await api.post<any>('/sync/trigger');
+      if (res.success) {
+        setSuccess(`Manual synchronization complete! Pushed changes to the cloud.`);
+        setStatus(prev => ({
+          ...prev,
+          unsyncedCount: res.unsyncedCount,
+          syncedCount: prev.syncedCount + (prev.unsyncedCount - res.unsyncedCount)
+        }));
+      } else {
+        setError(res.message || 'Sync was not triggered. Check configuration.');
+      }
+    } catch (err: any) {
+      setError(err.message || 'Sync failed. Ensure branch is online and credentials are correct.');
+    } finally {
+      setSyncing(false);
+    }
+  }
+
+  return (
+    <div>
+      <h2 className="text-lg font-semibold mb-2">Cloud Database Synchronization</h2>
+      <p className="text-sm text-muted-foreground mb-6">
+        Configure your local branch desktop application to push transactions, customers, and inventory data automatically to the central Supabase cloud database.
+      </p>
+
+      <div className="flex flex-col gap-5 max-w-xl">
+        {success && (
+          <div className="flex items-center gap-2 rounded-md bg-emerald-50 dark:bg-emerald-950/20 px-4 py-3 text-sm text-emerald-700 dark:text-emerald-400 border border-emerald-200 dark:border-emerald-800">
+            <CheckCircle size={16} className="shrink-0"/> <span>{success}</span>
+          </div>
+        )}
+        {error && (
+          <div className="flex items-center gap-2 rounded-md bg-red-50 dark:bg-red-950/20 px-4 py-3 text-sm text-red-700 dark:text-red-400 border border-red-200 dark:border-red-800">
+            <span>{error}</span>
+          </div>
+        )}
+
+        {/* Sync Status Info */}
+        <div className="grid grid-cols-3 gap-4 rounded-lg border border-border bg-muted/20 p-4">
+          <div>
+            <span className="text-xs font-semibold text-muted-foreground uppercase">Sync Status</span>
+            <p className={`text-sm font-bold mt-1 ${status.enabled ? 'text-emerald-600' : 'text-amber-500'}`}>
+              {status.enabled ? '✓ Connected' : '✗ Config Required'}
+            </p>
+          </div>
+          <div>
+            <span className="text-xs font-semibold text-muted-foreground uppercase">Unsynced Changes</span>
+            <p className="text-sm font-bold mt-1 text-foreground">
+              {status.unsyncedCount} pending
+            </p>
+          </div>
+          <div>
+            <span className="text-xs font-semibold text-muted-foreground uppercase">Total Synced Logs</span>
+            <p className="text-sm font-bold mt-1 text-foreground">
+              {status.syncedCount} entries
+            </p>
+          </div>
+        </div>
+
+        {/* Manual Sync Trigger */}
+        <div className="border border-border rounded-lg p-5 bg-card">
+          <h3 className="font-semibold text-base mb-1 text-foreground">Push Local Changes to Cloud</h3>
+          <p className="text-xs text-muted-foreground mb-4">
+            Manually trigger the sync service to upload any offline modifications (sales, purchases, stocks) to your central Supabase database.
+          </p>
+          <button
+            onClick={handleTriggerSync}
+            disabled={syncing || !status.enabled}
+            className="flex items-center justify-center gap-2 rounded-md bg-primary px-4 py-2.5 text-sm font-semibold text-primary-foreground shadow hover:bg-primary/90 disabled:opacity-50 transition-colors"
+          >
+            <RefreshCw size={15} className={syncing ? 'animate-spin' : ''}/>
+            {syncing ? 'Synchronizing...' : 'Sync Now'}
+          </button>
+        </div>
+
+        {/* Settings Form */}
+        <div className="border border-border rounded-lg p-5 bg-card">
+          <h3 className="font-semibold text-base mb-4 text-foreground">Sync Credentials</h3>
+          
+          <div className="flex flex-col gap-4">
+            <Field label="Cloud Sync URL (Vercel Endpoint)" required>
+              <Input
+                value={form.syncTargetUrl}
+                onChange={e => setForm(prev => ({ ...prev, syncTargetUrl: e.target.value }))}
+                placeholder="https://nexoraenterprise.vercel.app/api/v1/sync"
+              />
+            </Field>
+
+            <Field label="Sync Secret Key (SYNC_SECRET)" required>
+              <Input
+                type="password"
+                value={form.syncSecret}
+                onChange={e => setForm(prev => ({ ...prev, syncSecret: e.target.value }))}
+                placeholder="Enter SYNC_SECRET key"
+              />
+            </Field>
+
+            <Field label="Supabase Database URL (Transaction Mode Pooler)" required hint="Used by local client to track changes">
+              <Input
+                type="password"
+                value={form.supabaseDbUrl}
+                onChange={e => setForm(prev => ({ ...prev, supabaseDbUrl: e.target.value }))}
+                placeholder="postgresql://postgres.xxx:pass@aws-0.pooler.supabase.com:6543/postgres?pgbouncer=true&connection_limit=1"
+              />
+            </Field>
+
+            <button
+              onClick={handleSaveConfig}
+              disabled={loading}
+              className="flex items-center justify-center gap-2 rounded-md bg-foreground text-background px-4 py-2.5 text-sm font-semibold hover:bg-foreground/90 disabled:opacity-50 transition-colors mt-2"
+            >
+              <Save size={15}/>
+              Save Sync Settings
             </button>
           </div>
         </div>

@@ -608,9 +608,20 @@ app.on('ready', async () => {
 
   // ─── PDF Print / Physical Print Handler ───────────────────────────────────
   ipcMain.handle('print-invoice-pdf', async (_event, html, invoiceNo) => {
+    const { response } = await dialog.showMessageBox({
+      type: 'question',
+      buttons: ['Save as PDF (Download)', 'Print (Physical Printer)', 'Cancel'],
+      defaultId: 0,
+      title: `Invoice ${invoiceNo}`,
+      message: `What would you like to do with Invoice ${invoiceNo}?`,
+    });
+
+    if (response === 2) return { success: false, error: 'Cancelled' };
+
     const invoiceWin = new BrowserWindow({
       width: 900,
       height: 950,
+      show: response === 1, // Only show if physical printing
       title: `Print Invoice ${invoiceNo}`,
       autoHideMenuBar: true,
       webPreferences: { nodeIntegration: false, contextIsolation: true },
@@ -620,20 +631,55 @@ app.on('ready', async () => {
     fs.writeFileSync(tempFilePath, html);
     await invoiceWin.loadURL(`file://${tempFilePath}`);
 
-    // Trigger standard Chromium printing with full preview and PDF options
-    await invoiceWin.webContents.executeJavaScript('window.print()');
+    try {
+      if (response === 0) {
+        // Save as PDF (Download)
+        const pdfData = await invoiceWin.webContents.printToPDF({
+          margins: { top: 0, bottom: 0, left: 0, right: 0 },
+          pageSize: 'A4',
+          printBackground: true,
+        });
 
-    invoiceWin.on('closed', () => {
+        const { canceled, filePath } = await dialog.showSaveDialog({
+          title: 'Save Invoice PDF',
+          defaultPath: path.join(app.getPath('downloads'), `Invoice-${invoiceNo}.pdf`),
+          filters: [{ name: 'PDF Files', extensions: ['pdf'] }],
+        });
+
+        if (!canceled && filePath) {
+          fs.writeFileSync(filePath, pdfData);
+          try { invoiceWin.close(); } catch {}
+          return { success: true };
+        }
+      } else if (response === 1) {
+        // Print (Physical Printer)
+        await invoiceWin.webContents.executeJavaScript('window.print()');
+      }
+    } catch (err) {
+      console.error('Print invoice error:', err);
+    } finally {
+      try { invoiceWin.close(); } catch {}
       try { fs.unlinkSync(tempFilePath); } catch {}
-    });
+    }
     return { success: true };
   });
 
   // ─── Generic HTML Print Handler (Statements, etc.) ───────────────────────
   ipcMain.handle('print-html', async (_event, html, title) => {
+    const { response } = await dialog.showMessageBox({
+      type: 'question',
+      buttons: ['Save as PDF (Download)', 'Print (Physical Printer)', 'Cancel'],
+      defaultId: 0,
+      title: title || 'Document Options',
+      message: `What would you like to do with this document?`,
+    });
+
+    if (response === 2) return { success: false, error: 'Cancelled' };
+
     const printWin = new BrowserWindow({
       width: 900,
       height: 950,
+      show: response === 1,
       title: title || 'Print Document',
       autoHideMenuBar: true,
       webPreferences: { nodeIntegration: false, contextIsolation: true },
@@ -643,11 +689,35 @@ app.on('ready', async () => {
     fs.writeFileSync(tempFilePath, html);
     await printWin.loadURL(`file://${tempFilePath}`);
 
-    await printWin.webContents.executeJavaScript('window.print()');
+    try {
+      if (response === 0) {
+        const pdfData = await printWin.webContents.printToPDF({
+          margins: { top: 0, bottom: 0, left: 0, right: 0 },
+          pageSize: 'A4',
+          printBackground: true,
+        });
 
-    printWin.on('closed', () => {
+        const safeTitle = (title || 'document').replace(/[^a-z0-9]/gi, '_').toLowerCase();
+        const { canceled, filePath } = await dialog.showSaveDialog({
+          title: 'Save PDF Document',
+          defaultPath: path.join(app.getPath('downloads'), `${safeTitle}.pdf`),
+          filters: [{ name: 'PDF Files', extensions: ['pdf'] }],
+        });
+
+        if (!canceled && filePath) {
+          fs.writeFileSync(filePath, pdfData);
+          try { printWin.close(); } catch {}
+          return { success: true };
+        }
+      } else if (response === 1) {
+        await printWin.webContents.executeJavaScript('window.print()');
+      }
+    } catch (err) {
+      console.error('Print HTML error:', err);
+    } finally {
+      try { printWin.close(); } catch {}
       try { fs.unlinkSync(tempFilePath); } catch {}
-    });
+    }
     return { success: true };
   });
 
