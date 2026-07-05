@@ -215,7 +215,10 @@ function BackupTab() {
           setError(res.error);
         }
       } else {
-        const response = await fetch(`${process.env.NEXT_PUBLIC_API_URL ?? 'http://localhost:4000/api/v1'}/company-settings/backup`, {
+        const apiBase = typeof window !== 'undefined'
+          ? `${window.location.origin}/api/v1`
+          : (process.env.NEXT_PUBLIC_API_URL ?? 'http://localhost:4000/api/v1');
+        const response = await fetch(`${apiBase}/company-settings/backup`, {
           headers: {
             'Authorization': `Bearer ${Cookies.get('accessToken')}`
           }

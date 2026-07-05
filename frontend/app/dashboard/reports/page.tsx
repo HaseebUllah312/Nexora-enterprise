@@ -3,7 +3,9 @@ import { useState } from 'react';
 import { FileText, Download, Loader2, BarChart2, Package, ShoppingBag, Factory, Users } from 'lucide-react';
 import { api } from '@/lib/api';
 
-const API = process.env.NEXT_PUBLIC_API_URL ?? 'http://localhost:4000/api/v1';
+const API = typeof window !== 'undefined'
+  ? `${window.location.origin}/api/v1`
+  : (process.env.NEXT_PUBLIC_API_URL ?? 'http://localhost:4000/api/v1');
 
 const REPORTS = [
   {
