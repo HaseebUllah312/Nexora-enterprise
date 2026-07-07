@@ -74,27 +74,29 @@ function loadEnv() {
   const appRootEnv = path.join(getAppRoot(), '.env');
   const defaultsEnv = path.join(__dirname, '.env.defaults');
 
-  let envPath = null;
-  if (fs.existsSync(userDataEnv)) envPath = userDataEnv;
-  else if (fs.existsSync(appRootEnv)) envPath = appRootEnv;
-  else if (fs.existsSync(defaultsEnv)) envPath = defaultsEnv;
+  const filesToLoad = [];
+  if (fs.existsSync(defaultsEnv)) filesToLoad.push(defaultsEnv);
+  if (fs.existsSync(appRootEnv)) filesToLoad.push(appRootEnv);
+  if (fs.existsSync(userDataEnv)) filesToLoad.push(userDataEnv);
 
-  if (envPath) {
-    const envContent = fs.readFileSync(envPath, 'utf-8');
-    envContent.split('\n').forEach(line => {
-      const trimmed = line.trim();
-      if (!trimmed || trimmed.startsWith('#')) return;
-      const eqIndex = trimmed.indexOf('=');
-      if (eqIndex === -1) return;
-      const key = trimmed.substring(0, eqIndex).trim();
-      let val = trimmed.substring(eqIndex + 1).trim();
-      // Remove surrounding quotes
-      if ((val.startsWith('"') && val.endsWith('"')) || (val.startsWith("'") && val.endsWith("'"))) {
-        val = val.slice(1, -1);
-      }
-      process.env[key] = val;
+  if (filesToLoad.length > 0) {
+    filesToLoad.forEach(envPath => {
+      const envContent = fs.readFileSync(envPath, 'utf-8');
+      envContent.split('\n').forEach(line => {
+        const trimmed = line.trim();
+        if (!trimmed || trimmed.startsWith('#')) return;
+        const eqIndex = trimmed.indexOf('=');
+        if (eqIndex === -1) return;
+        const key = trimmed.substring(0, eqIndex).trim();
+        let val = trimmed.substring(eqIndex + 1).trim();
+        // Remove surrounding quotes
+        if ((val.startsWith('"') && val.endsWith('"')) || (val.startsWith("'") && val.endsWith("'"))) {
+          val = val.slice(1, -1);
+        }
+        process.env[key] = val;
+      });
+      console.log(`[ERP] Loaded/Overridden env from: ${envPath}`);
     });
-    console.log(`[ERP] Loaded env from: ${envPath}`);
   } else {
     console.warn('[ERP] No .env file found! Please create one next to the executable.');
   }
