@@ -1159,6 +1159,21 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ pat
       return corsResponse(movement);
     }
 
+    if (route === 'branches') {
+      const created = await prisma.branch.create({ data: body });
+      return corsResponse(created);
+    }
+
+    if (route === 'warehouses') {
+      const created = await prisma.warehouse.create({ data: body });
+      return corsResponse(created);
+    }
+
+    if (route === 'categories') {
+      const created = await prisma.category.create({ data: body });
+      return corsResponse(created);
+    }
+
     return errorResponse(`Route POST /${route} not found or not mapped`, 404);
   } catch (err: any) {
     console.error('API POST error:', err);
@@ -1304,6 +1319,33 @@ export async function PATCH(req: NextRequest, { params }: { params: Promise<{ pa
       return corsResponse(updated);
     }
 
+    // Update branch
+    if (path[0] === 'branches' && path.length === 2) {
+      const updated = await prisma.branch.update({
+        where: { id: path[1] },
+        data: body,
+      });
+      return corsResponse(updated);
+    }
+
+    // Update warehouse
+    if (path[0] === 'warehouses' && path.length === 2) {
+      const updated = await prisma.warehouse.update({
+        where: { id: path[1] },
+        data: body,
+      });
+      return corsResponse(updated);
+    }
+
+    // Update category
+    if (path[0] === 'categories' && path.length === 2) {
+      const updated = await prisma.category.update({
+        where: { id: path[1] },
+        data: body,
+      });
+      return corsResponse(updated);
+    }
+
     return errorResponse(`Route PATCH /${route} not found or not mapped`, 404);
   } catch (err: any) {
     console.error('API PATCH error:', err);
@@ -1335,6 +1377,21 @@ export async function DELETE(req: NextRequest, { params }: { params: Promise<{ p
 
     if (path[0] === 'products' && path.length === 2) {
       await prisma.product.delete({ where: { id: path[1] } });
+      return corsResponse({ success: true });
+    }
+
+    if (path[0] === 'branches' && path.length === 2) {
+      await prisma.branch.delete({ where: { id: path[1] } });
+      return corsResponse({ success: true });
+    }
+
+    if (path[0] === 'warehouses' && path.length === 2) {
+      await prisma.warehouse.delete({ where: { id: path[1] } });
+      return corsResponse({ success: true });
+    }
+
+    if (path[0] === 'categories' && path.length === 2) {
+      await prisma.category.delete({ where: { id: path[1] } });
       return corsResponse({ success: true });
     }
 
