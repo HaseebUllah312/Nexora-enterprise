@@ -25,7 +25,8 @@ export class PrismaService extends PrismaClient implements OnModuleInit, OnModul
         if (
           params.model &&
           (params.model as string) !== 'SyncLog' &&
-          writeActions.includes(params.action)
+          writeActions.includes(params.action) &&
+          !(global as any).isSyncingRemote
         ) {
           const modelName = params.model;
           // Defer writing to prevent deadlocking SQLite transactions
