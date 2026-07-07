@@ -40,6 +40,60 @@ export class ReturnsService {
       await tx.salesInvoice.update({ where: { id: dto.invoiceId },
         data: { paidAmount: { decrement: refund }, totalAmount: { decrement: totalAmount } } });
 
+      // Automatically post returns to accounting
+      const getBranchAccount = async (name: string, type: 'CASH' | 'BANK' | 'RECEIVABLE' | 'PAYABLE' | 'INCOME' | 'EXPENSE') => {
+        let acc = await tx.account.findFirst({
+          where: { branchId: dto.branchId, type },
+        });
+        if (!acc) {
+          const branch = await tx.branch.findUnique({ where: { id: dto.branchId } });
+          acc = await tx.account.create({
+            data: {
+              name: `${branch?.name || 'Branch'} ${name}`,
+              type,
+              branchId: dto.branchId,
+              balance: 0,
+            },
+          });
+        }
+        return acc;
+      };
+
+      const revenueAcc = await getBranchAccount('Sales Revenue', 'INCOME');
+      const recvAcc = await getBranchAccount('Accounts Receivable', 'RECEIVABLE');
+
+      // Debit Sales Revenue (reduce income)
+      await tx.transaction.create({
+        data: {
+          accountId: revenueAcc.id,
+          type: 'DEBIT',
+          amount: totalAmount,
+          description: `Sales Return Credit Note #${returnNo}`,
+          referenceType: 'SaleReturn',
+          referenceId: invoice.id,
+        },
+      });
+      await tx.account.update({
+        where: { id: revenueAcc.id },
+        data: { balance: { increment: totalAmount } },
+      });
+
+      // Credit Receivables (reduce receivables)
+      await tx.transaction.create({
+        data: {
+          accountId: recvAcc.id,
+          type: 'CREDIT',
+          amount: totalAmount,
+          description: `Accounts Receivable credit for Return #${returnNo}`,
+          referenceType: 'SaleReturn',
+          referenceId: invoice.id,
+        },
+      });
+      await tx.account.update({
+        where: { id: recvAcc.id },
+        data: { balance: { increment: -totalAmount } },
+      });
+
       return tx.saleReturn.create({
         data: { returnNo, invoiceId: dto.invoiceId, reason: dto.reason,
           items: dto.items as any, totalAmount, branchId: dto.branchId },
@@ -84,6 +138,60 @@ export class ReturnsService {
       // Reduce invoice amount
       await tx.purchaseInvoice.update({ where: { id: dto.invoiceId },
         data: { totalAmount: { decrement: totalAmount } } });
+
+      // Automatically post returns to accounting
+      const getBranchAccount = async (name: string, type: 'CASH' | 'BANK' | 'RECEIVABLE' | 'PAYABLE' | 'INCOME' | 'EXPENSE') => {
+        let acc = await tx.account.findFirst({
+          where: { branchId: dto.branchId, type },
+        });
+        if (!acc) {
+          const branch = await tx.branch.findUnique({ where: { id: dto.branchId } });
+          acc = await tx.account.create({
+            data: {
+              name: `${branch?.name || 'Branch'} ${name}`,
+              type,
+              branchId: dto.branchId,
+              balance: 0,
+            },
+          });
+        }
+        return acc;
+      };
+
+      const payAcc = await getBranchAccount('Accounts Payable', 'PAYABLE');
+      const expAcc = await getBranchAccount('Operating Expenses', 'EXPENSE');
+
+      // Debit Payables (reduce payables)
+      await tx.transaction.create({
+        data: {
+          accountId: payAcc.id,
+          type: 'DEBIT',
+          amount: totalAmount,
+          description: `Purchase Return Debit Note #${returnNo}`,
+          referenceType: 'PurchaseReturn',
+          referenceId: invoice.id,
+        },
+      });
+      await tx.account.update({
+        where: { id: payAcc.id },
+        data: { balance: { increment: totalAmount } },
+      });
+
+      // Credit Expense (reduce expense)
+      await tx.transaction.create({
+        data: {
+          accountId: expAcc.id,
+          type: 'CREDIT',
+          amount: totalAmount,
+          description: `Operating Expense credit for Purchase Return #${returnNo}`,
+          referenceType: 'PurchaseReturn',
+          referenceId: invoice.id,
+        },
+      });
+      await tx.account.update({
+        where: { id: expAcc.id },
+        data: { balance: { increment: -totalAmount } },
+      });
 
       return tx.purchaseReturn.create({
         data: { returnNo, invoiceId: dto.invoiceId, reason: dto.reason,

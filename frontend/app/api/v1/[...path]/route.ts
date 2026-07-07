@@ -90,9 +90,13 @@ export async function GET(req: NextRequest, { params }: { params: Promise<{ path
 
     if (route.startsWith('sync/')) {
       try {
+        const authHeader = req.headers.get('authorization');
         const response = await fetch(`http://localhost:4000/api/v1/${route}`, {
           method: 'GET',
-          headers: { 'Content-Type': 'application/json' },
+          headers: { 
+            'Content-Type': 'application/json',
+            ...(authHeader ? { 'Authorization': authHeader } : {}),
+          },
         });
         const data = await response.json();
         return corsResponse(data, response.status);
@@ -819,9 +823,13 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ pat
 
   if (route.startsWith('sync/')) {
     try {
+      const authHeader = req.headers.get('authorization');
       const response = await fetch(`http://localhost:4000/api/v1/${route}`, {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+        headers: { 
+          'Content-Type': 'application/json',
+          ...(authHeader ? { 'Authorization': authHeader } : {}),
+        },
         body: JSON.stringify(body),
       });
       const data = await response.json();

@@ -68,9 +68,9 @@ async function main() {
     }
     // ── 5. COMPANY SETTINGS ────────────────────────────────────────────────────
     const branches = [
-        { branch: mainBranch, companyName: 'Ali PVC Industries (Main)', prefix: 'MINV' },
-        { branch: lahoreBranch, companyName: 'Ali PVC Industries (Lahore)', prefix: 'LINV' },
-        { branch: gujBranch, companyName: 'Ali PVC Industries (Gujranwala)', prefix: 'GINV' },
+        { branch: mainBranch, companyName: 'National Chattan (Main)', prefix: 'MINV' },
+        { branch: lahoreBranch, companyName: 'National Chattan (Lahore)', prefix: 'LINV' },
+        { branch: gujBranch, companyName: 'National Chattan (Gujranwala)', prefix: 'GINV' },
     ];
     for (const { branch, companyName, prefix } of branches) {
         await prisma.companySettings.upsert({

@@ -151,6 +151,78 @@ export class SalesService {
         });
       }
 
+      // Automatically post accounting entries
+      const getBranchAccount = async (name: string, type: 'CASH' | 'BANK' | 'RECEIVABLE' | 'PAYABLE' | 'INCOME' | 'EXPENSE') => {
+        let acc = await tx.account.findFirst({
+          where: { branchId: order.branchId, type },
+        });
+        if (!acc) {
+          acc = await tx.account.create({
+            data: {
+              name: `${branch?.name || 'Branch'} ${name}`,
+              type,
+              branchId: order.branchId,
+              balance: 0,
+            },
+          });
+        }
+        return acc;
+      };
+
+      const revenueAcc = await getBranchAccount('Sales Revenue', 'INCOME');
+      
+      // Credit: Income / Sales Revenue (increases revenue)
+      await tx.transaction.create({
+        data: {
+          accountId: revenueAcc.id,
+          type: 'CREDIT',
+          amount: total,
+          description: `Sales Invoice #${invoiceNo} for Order #${order.orderNo}`,
+          referenceType: 'SalesInvoice',
+          referenceId: invoice.id,
+        },
+      });
+      await tx.account.update({
+        where: { id: revenueAcc.id },
+        data: { balance: { increment: -total } },
+      });
+
+      if (dto.paymentMethod === 'CASH') {
+        // Debit Cash
+        const cashAcc = await getBranchAccount('Cash in Hand', 'CASH');
+        await tx.transaction.create({
+          data: {
+            accountId: cashAcc.id,
+            type: 'DEBIT',
+            amount: total,
+            description: `Cash received for Invoice #${invoiceNo}`,
+            referenceType: 'SalesInvoice',
+            referenceId: invoice.id,
+          },
+        });
+        await tx.account.update({
+          where: { id: cashAcc.id },
+          data: { balance: { increment: total } },
+        });
+      } else {
+        // Debit Receivables
+        const recvAcc = await getBranchAccount('Accounts Receivable', 'RECEIVABLE');
+        await tx.transaction.create({
+          data: {
+            accountId: recvAcc.id,
+            type: 'DEBIT',
+            amount: total,
+            description: `Accounts Receivable created for Invoice #${invoiceNo}`,
+            referenceType: 'SalesInvoice',
+            referenceId: invoice.id,
+          },
+        });
+        await tx.account.update({
+          where: { id: recvAcc.id },
+          data: { balance: { increment: total } },
+        });
+      }
+
       // Deduct stock
       for (const item of order.items) {
         const stock = await tx.stock.findFirst({
@@ -213,6 +285,61 @@ export class SalesService {
         where: { id: invoice.salesOrder.customerId },
         data: { balance: { decrement: dto.amount } },
       });
+
+      // Automatically post payment to accounting
+      const getBranchAccount = async (name: string, type: 'CASH' | 'BANK' | 'RECEIVABLE' | 'PAYABLE' | 'INCOME' | 'EXPENSE') => {
+        let acc = await tx.account.findFirst({
+          where: { branchId: invoice.salesOrder.branchId, type },
+        });
+        if (!acc) {
+          const branch = await tx.branch.findUnique({ where: { id: invoice.salesOrder.branchId } });
+          acc = await tx.account.create({
+            data: {
+              name: `${branch?.name || 'Branch'} ${name}`,
+              type,
+              branchId: invoice.salesOrder.branchId,
+              balance: 0,
+            },
+          });
+        }
+        return acc;
+      };
+
+      const cashAcc = await getBranchAccount('Cash in Hand', 'CASH');
+      const recvAcc = await getBranchAccount('Accounts Receivable', 'RECEIVABLE');
+
+      // Debit Cash
+      await tx.transaction.create({
+        data: {
+          accountId: cashAcc.id,
+          type: 'DEBIT',
+          amount: dto.amount,
+          description: `Payment received for Invoice #${invoice.invoiceNo}`,
+          referenceType: 'SalesInvoicePayment',
+          referenceId: invoice.id,
+        },
+      });
+      await tx.account.update({
+        where: { id: cashAcc.id },
+        data: { balance: { increment: dto.amount } },
+      });
+
+      // Credit Receivables
+      await tx.transaction.create({
+        data: {
+          accountId: recvAcc.id,
+          type: 'CREDIT',
+          amount: dto.amount,
+          description: `Payment credit for Invoice #${invoice.invoiceNo}`,
+          referenceType: 'SalesInvoicePayment',
+          referenceId: invoice.id,
+        },
+      });
+      await tx.account.update({
+        where: { id: recvAcc.id },
+        data: { balance: { increment: -dto.amount } },
+      });
+
       return updated;
     }, { timeout: 30000 });
   }

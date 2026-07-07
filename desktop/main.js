@@ -215,6 +215,7 @@ function startBackend() {
       PRISMA_BINARY_CACHE_DIR: prismaCacheDir,
       PRISMA_CACHE_DIR: prismaCacheDir,
       CACHE_DIR: prismaCacheDir,
+      USER_DATA_PATH: app.getPath('userData'),
       ...(IS_PACKAGED ? { ELECTRON_RUN_AS_NODE: '1' } : {}),
     };
 
@@ -519,6 +520,114 @@ function createMainWindow() {
   mainWindow.on('closed', () => {
     mainWindow = null;
   });
+
+  // Create professional application menu
+  const menuTemplate = [
+    {
+      label: 'File',
+      submenu: [
+        {
+          label: 'Minimize to Tray',
+          click: () => {
+            if (mainWindow) mainWindow.hide();
+          }
+        },
+        { type: 'separator' },
+        {
+          label: 'Exit',
+          click: () => {
+            app.isQuitting = true;
+            app.quit();
+          }
+        }
+      ]
+    },
+    {
+      label: 'Edit',
+      submenu: [
+        { role: 'undo' },
+        { role: 'redo' },
+        { type: 'separator' },
+        { role: 'cut' },
+        { role: 'copy' },
+        { role: 'paste' },
+        { role: 'selectAll' }
+      ]
+    },
+    {
+      label: 'View',
+      submenu: [
+        { role: 'reload' },
+        { role: 'forceReload' },
+        { role: 'toggleDevTools' },
+        { type: 'separator' },
+        { role: 'resetZoom' },
+        { role: 'zoomIn' },
+        { role: 'zoomOut' },
+        { type: 'separator' },
+        { role: 'togglefullscreen' }
+      ]
+    },
+    {
+      label: 'Window',
+      submenu: [
+        { role: 'minimize' },
+        { role: 'zoom' },
+        { type: 'separator' },
+        { role: 'close' }
+      ]
+    },
+    {
+      label: 'Help',
+      submenu: [
+        {
+          label: 'Support & Help Desk',
+          click: () => {
+            dialog.showMessageBox(mainWindow, {
+              type: 'info',
+              title: 'Support - Nexora Enterprise',
+              message: 'For any issues, queries, or support, please contact us:\n\n📧 Email: hmnexora@gmail.com\n📞 Phone: +92-300-1234567\n\nHM Nexora ERP Team',
+              buttons: ['OK']
+            });
+          }
+        },
+        {
+          label: 'Frequently Asked Questions (FAQ)',
+          click: () => {
+            dialog.showMessageBox(mainWindow, {
+              type: 'question',
+              title: 'Nexora Enterprise - FAQ',
+              message: 'Frequently Asked Questions:\n\n' +
+                'Q: Why is the cloud sync logging me out?\n' +
+                'A: When cloud sync parameters are saved, the local configuration writes database secrets. The app now keeps them isolated to prevent session invalidations.\n\n' +
+                'Q: How can I manually sync data to the cloud?\n' +
+                'A: Click the "Sync" button on the cloud sync settings page to run manual replication.\n\n' +
+                'Q: Why do some invoices render incorrectly?\n' +
+                'A: Local printer layouts are now UTF-8 compliant. Make sure your printer settings support standard font encoding.\n\n' +
+                'Q: How can I change the main factory name?\n' +
+                'A: A Super Admin can navigate to Company Settings and update the company name for all branches.',
+              buttons: ['OK']
+            });
+          }
+        },
+        { type: 'separator' },
+        {
+          label: 'About Nexora Enterprise',
+          click: () => {
+            dialog.showMessageBox(mainWindow, {
+              type: 'info',
+              title: 'About Nexora Enterprise',
+              message: 'Nexora Enterprise ERP System\nVersion: 1.0.0\nDeveloped by: HM Nexora\n\nAll rights reserved.',
+              buttons: ['OK']
+            });
+          }
+        }
+      ]
+    }
+  ];
+
+  const appMenu = Menu.buildFromTemplate(menuTemplate);
+  Menu.setApplicationMenu(appMenu);
 }
 
 // ─── System Tray ────────────────────────────────────────────────────────────

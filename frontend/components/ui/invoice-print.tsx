@@ -41,6 +41,7 @@ export function printInvoice(data: InvoiceData, format: 'a4' | 'thermal' = 'a4')
     html = `<!DOCTYPE html>
 <html>
 <head>
+<meta charset="UTF-8">
 <title>${data.isQuotation ? 'Quotation' : 'Receipt'} ${data.invoiceNo}</title>
 <style>
   * { box-sizing: border-box; margin: 0; padding: 0; }
@@ -160,7 +161,9 @@ export function printInvoice(data: InvoiceData, format: 'a4' | 'thermal' = 'a4')
     }).join('');
 
     html = `<!DOCTYPE html>
-<html><head><title>${data.isQuotation ? 'Quotation' : 'Invoice'} ${data.invoiceNo}</title>
+<html><head>
+<meta charset="UTF-8">
+<title>${data.isQuotation ? 'Quotation' : 'Invoice'} ${data.invoiceNo}</title>
 <style>
   * { box-sizing: border-box; margin: 0; padding: 0; }
   body { font-family: Arial, sans-serif; font-size: 12px; color: #1a1a1a; background: #fff; position: relative; }
@@ -263,7 +266,7 @@ export function printInvoice(data: InvoiceData, format: 'a4' | 'thermal' = 'a4')
     </tr>
     ${!data.isQuotation && paid > 0 ? `<tr><td style="padding: 6px 12px; color: #16a34a;">Paid</td><td style="padding: 6px 12px; text-align: right; color: #16a34a; font-weight: 500;">- ${FMT(paid)}</td></tr>` : ''}
     ${!data.isQuotation && outstanding > 0 ? `<tr style="background: #fef2f2;"><td style="padding: 8px 12px; font-weight: bold; color: #dc2626;">Balance Due</td><td style="padding: 8px 12px; text-align: right; font-weight: bold; color: #dc2626;">${FMT(outstanding)}</td></tr>` : ''}
-    ${!data.isQuotation && outstanding === 0 ? `<tr style="background: #f0fdf4;"><td colspan="2" style="padding: 8px 12px; text-align: center; color: #16a34a; font-weight: bold;">✓ FULLY PAID</td></tr>` : ''}
+    ${!data.isQuotation && outstanding === 0 ? `<tr style="background: #f0fdf4;"><td colspan="2" style="padding: 8px 12px; text-align: center; color: #16a34a; font-weight: bold;">&#10004; FULLY PAID</td></tr>` : ''}
   </table>
 </div>
 
@@ -298,16 +301,16 @@ ${(company.showSignatures ?? true) ? `
 <!-- DIGITAL BILL NOTICE -->
 <div style="text-align: center; padding: 20px 24px; margin-top: 10px;">
   <div style="display: inline-block; border: 2px dashed #1d4ed8; border-radius: 8px; padding: 10px 24px; background: #eff6ff;">
-    <p style="font-size: 13px; font-weight: bold; color: #1d4ed8; text-transform: uppercase; letter-spacing: 1px;">✓ Computer Generated Invoice</p>
+    <p style="font-size: 13px; font-weight: bold; color: #1d4ed8; text-transform: uppercase; letter-spacing: 1px;">&#10004; Computer Generated Invoice</p>
     <p style="font-size: 10px; color: #1e40af; margin-top: 2px;">This is a system-generated digital invoice and does not require a physical signature.</p>
   </div>
 </div>
 `}
 
 <div style="text-align: center; padding: 8px; background: #1e293b; color: rgba(255,255,255,0.5); font-size: 10px;">
-  Nexure Enterprise · Developed by HM Nexora · ${company.companyName}
-  ${company.email ? ` · ${company.email}` : ''}
-  ${company.website ? ` · ${company.website}` : ''}
+  Nexora Enterprise | Developed by HM Nexora | ${company.companyName}
+  ${company.email ? ` | ${company.email}` : ''}
+  ${company.website ? ` | ${company.website}` : ''}
 </div>
 
 </body></html>`;

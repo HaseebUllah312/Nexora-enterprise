@@ -156,7 +156,7 @@ export default function SaleDetailPage() {
               </>
             )}
             {inv && !fullyPaid && <button onClick={()=>setShowPay(true)} className="flex items-center gap-2 rounded-md bg-primary px-3 py-2 text-sm font-semibold text-primary-foreground hover:opacity-90"><CreditCard size={15}/>Record Payment</button>}
-            {inv && <button onClick={()=>router.push('/dashboard/returns')} className="flex items-center gap-2 rounded-md border border-red-300 text-red-600 px-3 py-2 text-sm hover:bg-red-50"><RotateCcw size={15}/>Return</button>}
+            {inv && <button onClick={()=>router.push(`/dashboard/returns?invoiceId=${inv.id}&type=sale`)} className="flex items-center gap-2 rounded-md border border-red-300 text-red-600 px-3 py-2 text-sm hover:bg-red-50"><RotateCcw size={15}/>Return</button>}
           </div>
         </div>
 

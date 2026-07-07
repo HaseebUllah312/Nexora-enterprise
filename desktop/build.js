@@ -63,6 +63,9 @@ function convertSchemaToSqlite(srcFile, destFile) {
   // 3. Replace database provider to sqlite
   content = content.replace(/provider\s*=\s*"postgresql"/g, 'provider = "sqlite"');
 
+  // 3b. Remove directUrl configuration for SQLite (SQLite does not support directUrl)
+  content = content.replace(/^\s*directUrl\s*=\s*.*$/gm, '');
+
   // 4. Remove PostgreSQL specific decorators (@db.Decimal, @db.Date, @db.VarChar, etc.)
   content = content.replace(/@db\.[A-Za-z0-9_]+(?:\([^)]*\))?/g, '');
 

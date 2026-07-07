@@ -7,10 +7,67 @@ export class ExpensesService {
 
   async create(dto: any) {
     const expenseNo = `EXP-${Date.now()}`;
-    return this.prisma.expense.create({
-      data: { ...dto, expenseNo, amount: Number(dto.amount) },
-      include: { branch: true },
-    });
+    return this.prisma.$transaction(async (tx) => {
+      const expense = await tx.expense.create({
+        data: { ...dto, expenseNo, amount: Number(dto.amount) },
+        include: { branch: true },
+      });
+
+      // Helper function to find or create standard accounts for a branch
+      const getBranchAccount = async (name: string, type: 'CASH' | 'BANK' | 'RECEIVABLE' | 'PAYABLE' | 'INCOME' | 'EXPENSE') => {
+        let acc = await tx.account.findFirst({
+          where: { branchId: expense.branchId, type },
+        });
+        if (!acc) {
+          acc = await tx.account.create({
+            data: {
+              name: `${expense.branch?.name || 'Branch'} ${name}`,
+              type,
+              branchId: expense.branchId,
+              balance: 0,
+            },
+          });
+        }
+        return acc;
+      };
+
+      const expAcc = await getBranchAccount('Operating Expenses', 'EXPENSE');
+      const cashAcc = await getBranchAccount('Cash in Hand', 'CASH');
+
+      // Debit Expense
+      await tx.transaction.create({
+        data: {
+          accountId: expAcc.id,
+          type: 'DEBIT',
+          amount: expense.amount,
+          description: `Expense Recorded: ${expense.title} (#${expenseNo})`,
+          referenceType: 'Expense',
+          referenceId: expense.id,
+        },
+      });
+      await tx.account.update({
+        where: { id: expAcc.id },
+        data: { balance: { increment: expense.amount } },
+      });
+
+      // Credit Cash
+      await tx.transaction.create({
+        data: {
+          accountId: cashAcc.id,
+          type: 'CREDIT',
+          amount: expense.amount,
+          description: `Cash payment for Expense: ${expense.title} (#${expenseNo})`,
+          referenceType: 'Expense',
+          referenceId: expense.id,
+        },
+      });
+      await tx.account.update({
+        where: { id: cashAcc.id },
+        data: { balance: { increment: -expense.amount } },
+      });
+
+      return expense;
+    }, { timeout: 30000 });
   }
 
   findAll(branchId?: string, from?: string, to?: string, category?: string) {

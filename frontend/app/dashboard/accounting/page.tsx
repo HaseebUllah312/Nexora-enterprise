@@ -1,6 +1,6 @@
 'use client';
 import { useEffect, useState } from 'react';
-import { Plus, BookOpen } from 'lucide-react';
+import { Plus, BookOpen, Printer, Download } from 'lucide-react';
 import { api } from '@/lib/api';
 import { AccountForm, JournalEntryForm } from '@/components/forms/journal-form';
 
@@ -38,6 +38,216 @@ export default function AccountingPage() {
     }catch{}finally{setLoading(false);}
   }
 
+  function downloadCSV() {
+    let csvContent = '';
+    let filename = `${tab}-${Date.now()}.csv`;
+
+    if (tab === 'trial-balance' && data) {
+      csvContent = 'Account,Type,Balance\n';
+      data.accounts?.forEach((a: any) => {
+        csvContent += `"${a.name}","${a.type}",${a.balance}\n`;
+      });
+      csvContent += `\nTotals,,Debits: ${data.totalDebits} | Credits: ${data.totalCredits}\n`;
+    } else if (tab === 'pnl' && data) {
+      csvContent = 'Metric,Amount\n';
+      csvContent += `Total Income,${data.totalIncome}\n`;
+      csvContent += `Total Expenses,${data.totalExpenses}\n`;
+      csvContent += `Net Profit,${data.netProfit}\n`;
+    } else if (tab === 'balance-sheet' && data) {
+      csvContent = 'Category,Item,Amount\n';
+      csvContent += `Assets,Cash,${data.assets?.cash}\n`;
+      csvContent += `Assets,Bank,${data.assets?.bank}\n`;
+      csvContent += `Assets,Receivables,${data.assets?.receivables}\n`;
+      csvContent += `Assets,Total,${data.assets?.total}\n`;
+      csvContent += `Liabilities,Payables,${data.liabilities?.payables}\n`;
+      csvContent += `Equity,Total,${data.equity?.total}\n`;
+    } else if (tab === 'cashbook' && data) {
+      csvContent = 'Date,Description,Ref,Type,Amount\n';
+      data.transactions?.forEach((t: any) => {
+        csvContent += `"${new Date(t.createdAt).toLocaleDateString('en-PK')}","${t.description || ''}","${t.referenceType || ''}","${t.type}",${t.amount}\n`;
+      });
+    } else if (tab === 'accounts') {
+      csvContent = 'Account Name,Type,Branch,Balance\n';
+      accounts.forEach((a: any) => {
+        csvContent += `"${a.name}","${a.type}","${a.branch?.name || ''}",${a.balance}\n`;
+      });
+    }
+
+    const blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8;' });
+    const blobUrl = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = blobUrl;
+    a.download = filename;
+    document.body.appendChild(a);
+    a.click();
+    document.body.removeChild(a);
+    URL.revokeObjectURL(blobUrl);
+  }
+
+  function printStatement() {
+    let reportTitle = '';
+    let reportBody = '';
+
+    if (tab === 'trial-balance' && data) {
+      reportTitle = 'Trial Balance';
+      const rows = data.accounts?.map((a: any) => `
+        <tr>
+          <td>${a.name}</td>
+          <td>${a.type}</td>
+          <td style="text-align: right;">${PKR(a.balance)}</td>
+        </tr>
+      `).join('');
+      reportBody = `
+        <div style="display: flex; justify-content: space-between; margin-bottom: 20px;">
+          <strong>Status: ${data.isBalanced ? 'Balanced' : 'Out of Balance'}</strong>
+        </div>
+        <table>
+          <thead>
+            <tr>
+              <th>Account</th>
+              <th>Type</th>
+              <th style="text-align: right;">Balance</th>
+            </tr>
+          </thead>
+          <tbody>
+            ${rows}
+          </tbody>
+          <tfoot>
+            <tr style="font-weight: bold; background: #f3f4f6;">
+              <td colspan="2">Totals</td>
+              <td style="text-align: right;">Dr: ${PKR(data.totalDebits)} / Cr: ${PKR(data.totalCredits)}</td>
+            </tr>
+          </tfoot>
+        </table>
+      `;
+    } else if (tab === 'pnl' && data) {
+      reportTitle = 'Profit & Loss Statement';
+      reportBody = `
+        <table>
+          <tr><td>Total Income</td><td style="text-align: right; font-weight: bold; color: #10b981;">${PKR(data.totalIncome)}</td></tr>
+          <tr><td>Total Expenses</td><td style="text-align: right; font-weight: bold; color: #ef4444;">${PKR(data.totalExpenses)}</td></tr>
+          <tr style="font-weight: bold; font-size: 1.1em; background: #f3f4f6;">
+            <td>Net Profit</td>
+            <td style="text-align: right; color: ${data.netProfit >= 0 ? '#2563eb' : '#f97316'};">${PKR(data.netProfit)}</td>
+          </tr>
+        </table>
+      `;
+    } else if (tab === 'balance-sheet' && data) {
+      reportTitle = 'Balance Sheet';
+      reportBody = `
+        <div style="display: flex; gap: 20px;">
+          <div style="flex: 1;">
+            <h3 style="color: #047857; border-bottom: 2px solid #047857; padding-bottom: 5px;">ASSETS</h3>
+            <table>
+              <tr><td>Cash</td><td style="text-align: right;">${PKR(data.assets?.cash)}</td></tr>
+              <tr><td>Bank</td><td style="text-align: right;">${PKR(data.assets?.bank)}</td></tr>
+              <tr><td>Receivables</td><td style="text-align: right;">${PKR(data.assets?.receivables)}</td></tr>
+              <tr style="font-weight: bold; background: #f0fdf4;"><td>Total Assets</td><td style="text-align: right;">${PKR(data.assets?.total)}</td></tr>
+            </table>
+          </div>
+          <div style="flex: 1;">
+            <h3 style="color: #b91c1c; border-bottom: 2px solid #b91c1c; padding-bottom: 5px;">LIABILITIES & EQUITY</h3>
+            <table>
+              <tr><td>Payables</td><td style="text-align: right;">${PKR(data.liabilities?.payables)}</td></tr>
+              <tr><td>Equity</td><td style="text-align: right;">${PKR(data.equity?.total)}</td></tr>
+              <tr style="font-weight: bold; background: #fef2f2;"><td>Total L+E</td><td style="text-align: right;">${PKR((data.liabilities?.total || 0) + (data.equity?.total || 0))}</td></tr>
+            </table>
+          </div>
+        </div>
+      `;
+    } else if (tab === 'cashbook' && data) {
+      reportTitle = 'Cash Book';
+      const rows = data.transactions?.map((t: any) => `
+        <tr>
+          <td>${new Date(t.createdAt).toLocaleDateString('en-PK')}</td>
+          <td>${t.description || '—'}</td>
+          <td>${t.referenceType || '—'}</td>
+          <td>${t.type}</td>
+          <td style="text-align: right;">${PKR(t.amount)}</td>
+        </tr>
+      `).join('');
+      reportBody = `
+        <table>
+          <thead>
+            <tr>
+              <th>Date</th>
+              <th>Description</th>
+              <th>Ref</th>
+              <th>Type</th>
+              <th style="text-align: right;">Amount</th>
+            </tr>
+          </thead>
+          <tbody>
+            ${rows || '<tr><td colspan="5" style="text-align: center;">No cash transactions</td></tr>'}
+          </tbody>
+        </table>
+      `;
+    } else if (tab === 'accounts') {
+      reportTitle = 'Chart of Accounts';
+      const rows = accounts.map((a: any) => `
+        <tr>
+          <td>${a.name}</td>
+          <td>${a.type}</td>
+          <td>${a.branch?.name || '—'}</td>
+          <td style="text-align: right;">${PKR(a.balance)}</td>
+        </tr>
+      `).join('');
+      reportBody = `
+        <table>
+          <thead>
+            <tr>
+              <th>Account Name</th>
+              <th>Type</th>
+              <th>Branch</th>
+              <th style="text-align: right;">Balance</th>
+            </tr>
+          </thead>
+          <tbody>
+            ${rows}
+          </tbody>
+        </table>
+      `;
+    }
+
+    const html = `<!DOCTYPE html>
+<html>
+<head>
+  <meta charset="UTF-8">
+  <title>${reportTitle}</title>
+  <style>
+    body { font-family: Arial, sans-serif; padding: 40px; color: #1f2937; }
+    .header { border-bottom: 2px solid #2563eb; padding-bottom: 15px; margin-bottom: 25px; }
+    .title { font-size: 24px; font-weight: bold; color: #1e3a8a; }
+    .subtitle { font-size: 13px; color: #4b5563; margin-top: 5px; }
+    table { width: 100%; border-collapse: collapse; margin-top: 15px; margin-bottom: 20px; }
+    th { background: #f3f4f6; padding: 10px; text-align: left; font-weight: bold; border-bottom: 2px solid #e5e7eb; font-size: 12px; }
+    td { padding: 10px; border-bottom: 1px solid #e5e7eb; font-size: 12px; }
+    .footer { margin-top: 50px; font-size: 11px; color: #9ca3af; text-align: center; border-top: 1px solid #e5e7eb; padding-top: 15px; }
+  </style>
+</head>
+<body>
+  <div class="header">
+    <div class="title">${reportTitle}</div>
+    <div class="subtitle">Generated on ${new Date().toLocaleString('en-PK')}</div>
+  </div>
+  ${reportBody}
+  <div class="footer">
+    Nexora Enterprise • Developed by HM Nexora
+  </div>
+</body>
+</html>`;
+
+    const electronAPI = (typeof window !== 'undefined' && (window as any).electronAPI);
+    if (electronAPI?.printHTML) {
+      electronAPI.printHTML(html, reportTitle);
+    } else {
+      const w = window.open('', '_blank');
+      if (!w) { alert('Allow popups to print'); return; }
+      w.document.write(html.replace('</body></html>', '<script>window.onload=function(){window.print();}<\/script></body></html>'));
+      w.document.close();
+    }
+  }
+
   const TABS=[
     {key:'trial-balance',label:'Trial Balance'},
     {key:'pnl',label:'Profit & Loss'},
@@ -55,6 +265,16 @@ export default function AccountingPage() {
         <div className="flex items-center justify-between">
           <div><h1 className="text-2xl font-semibold">Accounting</h1><p className="text-sm text-muted-foreground">General ledger and financial reports</p></div>
           <div className="flex gap-2">
+            {(data || (tab === 'accounts' && accounts.length > 0)) && (
+              <>
+                <button onClick={downloadCSV} className="flex items-center gap-2 rounded-md border border-border px-3 py-2 text-sm hover:bg-muted font-medium transition-colors">
+                  <Download size={15}/>Export CSV
+                </button>
+                <button onClick={printStatement} className="flex items-center gap-2 rounded-md border border-border px-3 py-2 text-sm hover:bg-muted font-medium transition-colors">
+                  <Printer size={15}/>Print
+                </button>
+              </>
+            )}
             <button onClick={()=>setShowAcc(true)} className="flex items-center gap-2 rounded-md border border-border px-3 py-2 text-sm hover:bg-muted font-medium">
               <Plus size={15}/>Add Account
             </button>

@@ -1,5 +1,5 @@
 'use client';
-import { useEffect, useState, useCallback } from 'react';
+import { useEffect, useState, useCallback, Suspense } from 'react';
 import { Plus, RotateCcw, Trash2 } from 'lucide-react';
 import { api } from '@/lib/api';
 import { DataTableShell } from '@/components/ui/data-table-shell';
@@ -7,14 +7,18 @@ import { Modal } from '@/components/ui/modal';
 import { Field, Input, Select } from '@/components/ui/form-field';
 import { SubmitButton } from '@/components/ui/submit-button';
 import { getCurrentUser } from '@/lib/auth';
+import { useSearchParams } from 'next/navigation';
 
 interface SaleReturn { id:string; returnNo:string; reason:string; totalAmount:string; createdAt:string; invoice:{invoiceNo:string}; branch:{name:string}; items:any[]; }
 interface PurchReturn { id:string; returnNo:string; reason:string; totalAmount:string; createdAt:string; invoice:{invoiceNo:string}; branch:{name:string}; items:any[]; }
 
 const PKR = (v:number|string) => 'PKR '+Number(v).toLocaleString('en-PK',{maximumFractionDigits:0});
 
-export default function ReturnsPage() {
+function ReturnsPageContent() {
   const user = getCurrentUser();
+  const searchParams = useSearchParams();
+  const qInvoiceId = searchParams.get('invoiceId');
+  const qType = searchParams.get('type') as 'sale' | 'purchase' | null;
   const [tab, setTab] = useState<'sale'|'purchase'>('sale');
   const [saleRet, setSaleRet]   = useState<SaleReturn[]>([]);
   const [purchRet, setPurchRet] = useState<PurchReturn[]>([]);
@@ -43,6 +47,43 @@ export default function ReturnsPage() {
   }, []);
 
   useEffect(() => { load(); }, [load]);
+
+  useEffect(() => {
+    if (qInvoiceId && (qType === 'sale' || qType === 'purchase')) {
+      setTab(qType);
+      
+      const autoLoad = async () => {
+        try {
+          let fetchedInvoices: any[] = [];
+          if (qType === 'sale') {
+            const orders = await api.get<any[]>('/sales/orders?status=INVOICED');
+            fetchedInvoices = orders.filter(o=>o.invoice).map(o=>({
+              id: o.invoice.id, invoiceNo: o.invoice.invoiceNo,
+              items: o.items.map((i:any)=>({ productId:i.productId, productName:i.product.name, quantity:Number(i.quantity), unitPrice:Number(i.unitPrice), unitCost:Number(i.unitPrice) })),
+            }));
+          } else {
+            const orders = await api.get<any[]>('/purchases/orders?status=INVOICED');
+            fetchedInvoices = orders.filter(o=>o.invoice).map(o=>({
+              id: o.invoice.id, invoiceNo: o.invoice.invoiceNo,
+              items: o.items.map((i:any)=>({ productId:i.productId, productName:i.product.name, quantity:Number(i.quantity), unitPrice:Number(i.unitCost), unitCost:Number(i.unitCost) })),
+            }));
+          }
+          setInvoices(fetchedInvoices);
+          
+          const selected = fetchedInvoices.find(inv=>inv.id===qInvoiceId);
+          if (selected) {
+            setInvoiceId(qInvoiceId);
+            setItems(selected.items.map((item: any)=>({...item, quantity: 1})));
+            setShowForm(true);
+          }
+        } catch (e) {
+          console.error('Failed to auto load return invoice:', e);
+        }
+      };
+      
+      autoLoad();
+    }
+  }, [qInvoiceId, qType]);
 
   async function openForm() {
     setInvoiceId(''); setReason(''); setItems([]); setFErr({});
@@ -197,5 +238,13 @@ export default function ReturnsPage() {
         </table>
       </DataTableShell>
     </>
+  );
+}
+
+export default function ReturnsPage() {
+  return (
+    <Suspense fallback={<div className="p-4 text-sm text-muted-foreground">Loading...</div>}>
+      <ReturnsPageContent />
+    </Suspense>
   );
 }

@@ -24,10 +24,11 @@ export class CompanySettingsService {
   }
 
   async update(branchId: string, data: any) {
+    const { id, createdAt, updatedAt, branch, ...updateData } = data;
     return this.prisma.companySettings.upsert({
       where: { branchId },
-      update: data,
-      create: { branchId, ...data },
+      update: updateData,
+      create: { branchId, ...updateData },
     });
   }
 

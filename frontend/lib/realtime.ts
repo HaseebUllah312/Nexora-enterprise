@@ -13,7 +13,9 @@ import Cookies from 'js-cookie';
 
 const getWsUrl = () => {
   const apiBase = typeof window !== 'undefined'
-    ? `${window.location.origin}/api/v1`
+    ? ((window as any).electronAPI?.isDesktop 
+        ? 'http://localhost:4000/api/v1' 
+        : (process.env.NEXT_PUBLIC_API_URL || `${window.location.origin}/api/v1`))
     : (process.env.NEXT_PUBLIC_API_URL ?? 'http://localhost:4000/api/v1');
   return apiBase.replace('/api/v1', '').replace('http', 'ws');
 };

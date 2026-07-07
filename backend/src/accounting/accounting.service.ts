@@ -1,11 +1,21 @@
-import { Injectable, NotFoundException, BadRequestException } from '@nestjs/common';
+import { Injectable, NotFoundException, BadRequestException, OnModuleInit } from '@nestjs/common';
 import { PrismaService } from '../prisma/prisma.service';
 import { CreateAccountDto } from './dto/create-account.dto';
 import { CreateTransactionDto } from './dto/create-transaction.dto';
 
 @Injectable()
-export class AccountingService {
+export class AccountingService implements OnModuleInit {
   constructor(private prisma: PrismaService) {}
+
+  async onModuleInit() {
+    console.log('[Accounting] Checking for unposted historical financial records...');
+    try {
+      await this.postHistoricalRecords();
+      console.log('[Accounting] Historical records sync finished successfully.');
+    } catch (e) {
+      console.error('[Accounting] Failed to post historical records:', e);
+    }
+  }
 
   // ── CHART OF ACCOUNTS ─────────────────────────────────────────────────
   createAccount(dto: CreateAccountDto) {
@@ -143,5 +153,279 @@ export class AccountingService {
       take: 200,
     });
     return { cashAccounts, transactions };
+  }
+
+  async postHistoricalRecords() {
+    // Helper function to find or create standard accounts inside transaction
+    const getBranchAccount = async (tx: any, branchId: string, name: string, type: 'CASH' | 'BANK' | 'RECEIVABLE' | 'PAYABLE' | 'INCOME' | 'EXPENSE') => {
+      let acc = await tx.account.findFirst({
+        where: { branchId, type },
+      });
+      if (!acc) {
+        const branch = await tx.branch.findUnique({ where: { id: branchId } });
+        acc = await tx.account.create({
+          data: {
+            name: `${branch?.name || 'Branch'} ${name}`,
+            type,
+            branchId,
+            balance: 0,
+          },
+        });
+      }
+      return acc;
+    };
+
+    // 1. Process Sales Invoices
+    const salesInvoices = await this.prisma.salesInvoice.findMany({
+      include: { salesOrder: true },
+    });
+    for (const inv of salesInvoices) {
+      if (!inv.salesOrder) continue;
+      const exists = await this.prisma.transaction.findFirst({
+        where: { referenceType: 'SalesInvoice', referenceId: inv.id },
+      });
+      if (!exists) {
+        await this.prisma.$transaction(async (tx) => {
+          const revenueAcc = await getBranchAccount(tx, inv.salesOrder.branchId, 'Sales Revenue', 'INCOME');
+          
+          await tx.transaction.create({
+            data: {
+              accountId: revenueAcc.id,
+              type: 'CREDIT',
+              amount: inv.totalAmount,
+              description: `Historical Sales Invoice #${inv.invoiceNo}`,
+              referenceType: 'SalesInvoice',
+              referenceId: inv.id,
+              createdAt: inv.createdAt,
+            },
+          });
+          await tx.account.update({
+            where: { id: revenueAcc.id },
+            data: { balance: { decrement: inv.totalAmount } },
+          });
+
+          if (inv.paymentMethod === 'CASH') {
+            const cashAcc = await getBranchAccount(tx, inv.salesOrder.branchId, 'Cash in Hand', 'CASH');
+            await tx.transaction.create({
+              data: {
+                accountId: cashAcc.id,
+                type: 'DEBIT',
+                amount: inv.totalAmount,
+                description: `Historical Cash received for Invoice #${inv.invoiceNo}`,
+                referenceType: 'SalesInvoice',
+                referenceId: inv.id,
+                createdAt: inv.createdAt,
+              },
+            });
+            await tx.account.update({
+              where: { id: cashAcc.id },
+              data: { balance: { increment: inv.totalAmount } },
+            });
+          } else {
+            const recvAcc = await getBranchAccount(tx, inv.salesOrder.branchId, 'Accounts Receivable', 'RECEIVABLE');
+            await tx.transaction.create({
+              data: {
+                accountId: recvAcc.id,
+                type: 'DEBIT',
+                amount: inv.totalAmount,
+                description: `Historical Accounts Receivable created for Invoice #${inv.invoiceNo}`,
+                referenceType: 'SalesInvoice',
+                referenceId: inv.id,
+                createdAt: inv.createdAt,
+              },
+            });
+            await tx.account.update({
+              where: { id: recvAcc.id },
+              data: { balance: { increment: inv.totalAmount } },
+            });
+          }
+        });
+      }
+
+      // Process historical payments
+      if (Number(inv.paidAmount) > 0 && inv.paymentMethod === 'CREDIT') {
+        const payExists = await this.prisma.transaction.findFirst({
+          where: { referenceType: 'SalesInvoicePayment', referenceId: inv.id },
+        });
+        if (!payExists) {
+          await this.prisma.$transaction(async (tx) => {
+            const cashAcc = await getBranchAccount(tx, inv.salesOrder.branchId, 'Cash in Hand', 'CASH');
+            const recvAcc = await getBranchAccount(tx, inv.salesOrder.branchId, 'Accounts Receivable', 'RECEIVABLE');
+
+            await tx.transaction.create({
+              data: {
+                accountId: cashAcc.id,
+                type: 'DEBIT',
+                amount: inv.paidAmount,
+                description: `Historical Payment received for Invoice #${inv.invoiceNo}`,
+                referenceType: 'SalesInvoicePayment',
+                referenceId: inv.id,
+                createdAt: inv.createdAt,
+              },
+            });
+            await tx.account.update({
+              where: { id: cashAcc.id },
+              data: { balance: { increment: inv.paidAmount } },
+            });
+
+            await tx.transaction.create({
+              data: {
+                accountId: recvAcc.id,
+                type: 'CREDIT',
+                amount: inv.paidAmount,
+                description: `Historical Payment credit for Invoice #${inv.invoiceNo}`,
+                referenceType: 'SalesInvoicePayment',
+                referenceId: inv.id,
+                createdAt: inv.createdAt,
+              },
+            });
+            await tx.account.update({
+              where: { id: recvAcc.id },
+              data: { balance: { decrement: inv.paidAmount } },
+            });
+          });
+        }
+      }
+    }
+
+    // 2. Process Expenses
+    const expenses = await this.prisma.expense.findMany();
+    for (const exp of expenses) {
+      const exists = await this.prisma.transaction.findFirst({
+        where: { referenceType: 'Expense', referenceId: exp.id },
+      });
+      if (!exists) {
+        await this.prisma.$transaction(async (tx) => {
+          const expAcc = await getBranchAccount(tx, exp.branchId, 'Operating Expenses', 'EXPENSE');
+          const cashAcc = await getBranchAccount(tx, exp.branchId, 'Cash in Hand', 'CASH');
+
+          await tx.transaction.create({
+            data: {
+              accountId: expAcc.id,
+              type: 'DEBIT',
+              amount: exp.amount,
+              description: `Historical Expense: ${exp.title} (#${exp.expenseNo})`,
+              referenceType: 'Expense',
+              referenceId: exp.id,
+              createdAt: exp.expenseDate,
+            },
+          });
+          await tx.account.update({
+            where: { id: expAcc.id },
+            data: { balance: { increment: exp.amount } },
+          });
+
+          await tx.transaction.create({
+            data: {
+              accountId: cashAcc.id,
+              type: 'CREDIT',
+              amount: exp.amount,
+              description: `Historical Cash paid for Expense: ${exp.title} (#${exp.expenseNo})`,
+              referenceType: 'Expense',
+              referenceId: exp.id,
+              createdAt: exp.expenseDate,
+            },
+          });
+          await tx.account.update({
+            where: { id: cashAcc.id },
+            data: { balance: { decrement: exp.amount } },
+          });
+        });
+      }
+    }
+
+    // 3. Process Purchase Invoices
+    const purchaseInvoices = await this.prisma.purchaseInvoice.findMany({
+      include: { purchaseOrder: true },
+    });
+    for (const inv of purchaseInvoices) {
+      if (!inv.purchaseOrder) continue;
+      const exists = await this.prisma.transaction.findFirst({
+        where: { referenceType: 'PurchaseInvoice', referenceId: inv.id },
+      });
+      if (!exists) {
+        await this.prisma.$transaction(async (tx) => {
+          const payAcc = await getBranchAccount(tx, inv.purchaseOrder.branchId, 'Accounts Payable', 'PAYABLE');
+          const expAcc = await getBranchAccount(tx, inv.purchaseOrder.branchId, 'Operating Expenses', 'EXPENSE');
+
+          await tx.transaction.create({
+            data: {
+              accountId: expAcc.id,
+              type: 'DEBIT',
+              amount: inv.totalAmount,
+              description: `Historical Inventory Purchase Invoice #${inv.invoiceNo}`,
+              referenceType: 'PurchaseInvoice',
+              referenceId: inv.id,
+              createdAt: inv.createdAt,
+            },
+          });
+          await tx.account.update({
+            where: { id: expAcc.id },
+            data: { balance: { increment: inv.totalAmount } },
+          });
+
+          await tx.transaction.create({
+            data: {
+              accountId: payAcc.id,
+              type: 'CREDIT',
+              amount: inv.totalAmount,
+              description: `Historical Accounts Payable recorded for Invoice #${inv.invoiceNo}`,
+              referenceType: 'PurchaseInvoice',
+              referenceId: inv.id,
+              createdAt: inv.createdAt,
+            },
+          });
+          await tx.account.update({
+            where: { id: payAcc.id },
+            data: { balance: { decrement: inv.totalAmount } },
+          });
+        });
+      }
+
+      // Supplier payments catch-up
+      if (Number(inv.paidAmount) > 0) {
+        const payExists = await this.prisma.transaction.findFirst({
+          where: { referenceType: 'SupplierPayment', referenceId: inv.id },
+        });
+        if (!payExists) {
+          await this.prisma.$transaction(async (tx) => {
+            const payAcc = await getBranchAccount(tx, inv.purchaseOrder.branchId, 'Accounts Payable', 'PAYABLE');
+            const cashAcc = await getBranchAccount(tx, inv.purchaseOrder.branchId, 'Cash in Hand', 'CASH');
+
+            await tx.transaction.create({
+              data: {
+                accountId: payAcc.id,
+                type: 'DEBIT',
+                amount: inv.paidAmount,
+                description: `Historical Supplier payment for Invoice #${inv.invoiceNo}`,
+                referenceType: 'SupplierPayment',
+                referenceId: inv.id,
+                createdAt: inv.createdAt,
+              },
+            });
+            await tx.account.update({
+              where: { id: payAcc.id },
+              data: { balance: { increment: inv.paidAmount } },
+            });
+
+            await tx.transaction.create({
+              data: {
+                accountId: cashAcc.id,
+                type: 'CREDIT',
+                amount: inv.paidAmount,
+                description: `Historical Cash paid for Purchase Invoice #${inv.invoiceNo}`,
+                referenceType: 'SupplierPayment',
+                referenceId: inv.id,
+                createdAt: inv.createdAt,
+              },
+            });
+            await tx.account.update({
+              where: { id: cashAcc.id },
+              data: { balance: { decrement: inv.paidAmount } },
+            });
+          });
+        }
+      }
+    }
   }
 }

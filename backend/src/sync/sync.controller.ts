@@ -55,22 +55,28 @@ export class SyncController {
   @Post('config')
   async updateConfig(@Body() body: { syncTargetUrl: string; syncSecret: string; supabaseDbUrl: string }) {
     try {
-      const paths = [
-        path.join(process.cwd(), '.env'),
-        path.join(process.cwd(), '..', '.env'),
-        path.join(os.homedir(), 'AppData', 'Roaming', 'factory-erp-desktop', '.env'),
-      ];
-
       let envFileToUpdate = '';
-      for (const p of paths) {
-        if (fs.existsSync(p)) {
-          envFileToUpdate = p;
-          break;
-        }
-      }
 
-      if (!envFileToUpdate) {
-        envFileToUpdate = paths[0]; // fallback
+      if (process.env.USER_DATA_PATH) {
+        envFileToUpdate = path.join(process.env.USER_DATA_PATH, '.env');
+      } else {
+        const paths = [
+          path.join(process.cwd(), '.env'),
+          path.join(process.cwd(), '..', '.env'),
+          path.join(os.homedir(), 'AppData', 'Roaming', 'nexora-enterprise-desktop', '.env'),
+          path.join(os.homedir(), 'AppData', 'Roaming', 'factory-erp-desktop', '.env'),
+        ];
+
+        for (const p of paths) {
+          if (fs.existsSync(p)) {
+            envFileToUpdate = p;
+            break;
+          }
+        }
+
+        if (!envFileToUpdate) {
+          envFileToUpdate = paths[0]; // fallback
+        }
       }
 
       let content = '';
