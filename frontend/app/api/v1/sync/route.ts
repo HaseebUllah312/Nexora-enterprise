@@ -16,16 +16,19 @@ if (globalForSync.syncPrisma) {
   
   if (databaseUrl) {
     // Programmatically bypass pgBouncer connection pooler on Vercel by rewriting to the direct database IPv6 host
-    finalUrl = databaseUrl.replace(
-      'aws-1-ap-southeast-1.pooler.supabase.com',
-      'db.xyxbsebdovvmcmzingmh.supabase.co'
-    );
+    finalUrl = databaseUrl
+      .replace(/[a-z0-9-]+\.pooler\.supabase\.com/gi, 'db.xyxbsebdovvmcmzingmh.supabase.co')
+      .replace(':6543', ':5432');
     
     // Set a larger connection limit since we are not using the pooler
     if (!finalUrl.includes('connection_limit')) {
       const separator = finalUrl.includes('?') ? '&' : '?';
       finalUrl = `${finalUrl}${separator}connection_limit=10`;
     }
+  }
+
+  if (finalUrl) {
+    console.log('[Prisma Init] Resolved DATABASE_URL: ', finalUrl.replace(/:[^:@]+@/, ':****@'));
   }
 
   prisma = new PrismaClient({
