@@ -41,9 +41,17 @@ export async function POST(req: NextRequest) {
         return 3;
       };
 
-      const group1 = logs.filter(log => getModelPriority(log.modelName) === 1);
-      const group2 = logs.filter(log => getModelPriority(log.modelName) === 2);
-      const group3 = logs.filter(log => getModelPriority(log.modelName) === 3);
+      // Compact logs: keep only the latest log entry for each recordId
+      const compactedMap = new Map<string, any>();
+      for (const log of logs) {
+        compactedMap.set(log.recordId, log);
+      }
+      const compactedLogs = Array.from(compactedMap.values());
+      console.log(`[Vercel Sync] Compacted logs from ${logs.length} to ${compactedLogs.length} unique records.`);
+
+      const group1 = compactedLogs.filter(log => getModelPriority(log.modelName) === 1);
+      const group2 = compactedLogs.filter(log => getModelPriority(log.modelName) === 2);
+      const group3 = compactedLogs.filter(log => getModelPriority(log.modelName) === 3);
 
       const processLog = async (log: any) => {
         try {

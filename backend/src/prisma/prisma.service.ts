@@ -22,9 +22,10 @@ export class PrismaService extends PrismaClient implements OnModuleInit, OnModul
         const result = await next(params);
 
         const writeActions = ['create', 'update', 'upsert', 'delete'];
+        const ignoredModels = ['SyncLog', 'RefreshToken', 'AuditLog', 'Session'];
         if (
           params.model &&
-          (params.model as string) !== 'SyncLog' &&
+          !ignoredModels.includes(params.model as string) &&
           writeActions.includes(params.action) &&
           !(global as any).isSyncingRemote
         ) {
