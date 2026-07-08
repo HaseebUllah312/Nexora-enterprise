@@ -6,7 +6,7 @@ export const preferredRegion = 'sin1';
 
 const globalForSync = global as unknown as { syncPrisma: PrismaClient };
 const prisma = globalForSync.syncPrisma || new PrismaClient();
-if (process.env.NODE_ENV !== 'production') globalForSync.syncPrisma = prisma;
+globalForSync.syncPrisma = prisma;
 
 export async function OPTIONS() {
   return new NextResponse(null, {
