@@ -24,13 +24,19 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ message: 'Unauthorized' }, { status: 401 });
   }
 
+  const debugLogs: string[] = [];
+  const logDebug = (msg: string) => {
+    console.log(msg);
+    debugLogs.push(msg);
+  };
+
   try {
     const body = await req.json();
     const { logs, lastPulledAt } = body;
 
     // 1. Process incoming logs from client
     if (Array.isArray(logs) && logs.length > 0) {
-      console.log(`[Vercel Sync] Received sync request with ${logs.length} entries.`);
+      logDebug(`[Vercel Sync] Received sync request with ${logs.length} entries.`);
 
       await prisma.$transaction(async (tx) => {
         for (const log of logs) {
@@ -41,19 +47,23 @@ export async function POST(req: NextRequest) {
               await (tx[camelCaseModel] as any).delete({
                 where: { id: log.recordId },
               });
+              logDebug(`[Vercel Sync] Deleted record ${log.recordId} for model ${log.modelName}`);
             } catch (e) {
-              console.log(`[Vercel Sync] Record ${log.recordId} for model ${log.modelName} already deleted or not found.`);
+              logDebug(`[Vercel Sync] Record ${log.recordId} for model ${log.modelName} already deleted or not found.`);
             }
             continue;
           }
 
           if (!log.data) {
-            console.warn(`[Vercel Sync] Log ${log.logId} has action ${log.action} but data is null.`);
+            logDebug(`[Vercel Sync] Log ${log.logId} has action ${log.action} but data is null.`);
             continue;
           }
 
+          logDebug(`[Vercel Sync] Processing log: ${log.modelName}, action: ${log.action}, recordId: ${log.recordId}`);
+
           if (log.modelName === 'SalesOrder') {
             const { items, ...orderData } = log.data;
+            logDebug(`[Vercel Sync] Upserting SalesOrder ${log.recordId}`);
             await tx.salesOrder.upsert({
               where: { id: log.recordId },
               create: orderData,
@@ -62,6 +72,11 @@ export async function POST(req: NextRequest) {
             await tx.salesOrderItem.deleteMany({ where: { salesOrderId: log.recordId } });
             if (Array.isArray(items) && items.length > 0) {
               const cleanItems = items.map(({ product, ...item }: any) => item);
+              logDebug(`[Vercel Sync] Creating ${cleanItems.length} SalesOrderItems. Product IDs: ${JSON.stringify(cleanItems.map((ci: any) => ci.productId))}`);
+              for (const ci of cleanItems) {
+                const prodExists = await tx.product.findUnique({ where: { id: ci.productId }, select: { id: true, name: true } });
+                logDebug(`[Vercel Sync] Checking product ${ci.productId} existence in tx: ${JSON.stringify(prodExists)}`);
+              }
               await tx.salesOrderItem.createMany({ data: cleanItems });
             }
           } else if (log.modelName === 'PurchaseOrder') {
@@ -155,6 +170,9 @@ export async function POST(req: NextRequest) {
 
   } catch (err: any) {
     console.error('[Vercel Sync] Error processing sync:', err);
-    return NextResponse.json({ message: err.message || 'Internal Server Error' }, { status: 500 });
+    return NextResponse.json({
+      message: err.message || 'Internal Server Error',
+      debugLogs
+    }, { status: 500 });
   }
 }
