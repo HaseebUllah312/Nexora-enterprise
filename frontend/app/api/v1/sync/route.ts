@@ -35,7 +35,17 @@ export async function POST(req: NextRequest) {
     if (Array.isArray(logs) && logs.length > 0) {
       console.log(`[Vercel Sync] Received sync request with ${logs.length} entries.`);
 
-      for (const log of logs) {
+      const getModelPriority = (modelName: string): number => {
+        if (['Role', 'Branch', 'Category'].includes(modelName)) return 1;
+        if (['User', 'Warehouse', 'Customer', 'Supplier', 'Product'].includes(modelName)) return 2;
+        return 3;
+      };
+
+      const group1 = logs.filter(log => getModelPriority(log.modelName) === 1);
+      const group2 = logs.filter(log => getModelPriority(log.modelName) === 2);
+      const group3 = logs.filter(log => getModelPriority(log.modelName) === 3);
+
+      const processLog = async (log: any) => {
         try {
           const camelCaseModel = log.modelName.charAt(0).toLowerCase() + log.modelName.slice(1);
 
@@ -47,12 +57,12 @@ export async function POST(req: NextRequest) {
             } catch (e) {
               console.log(`[Vercel Sync] Record ${log.recordId} for model ${log.modelName} already deleted or not found.`);
             }
-            continue;
+            return;
           }
 
           if (!log.data) {
             console.warn(`[Vercel Sync] Log ${log.logId} has action ${log.action} but data is null.`);
-            continue;
+            return;
           }
 
           if (log.modelName === 'SalesOrder') {
@@ -113,6 +123,21 @@ export async function POST(req: NextRequest) {
         } catch (itemErr: any) {
           console.error(`[Vercel Sync] Error processing sync log ${log.logId} for model ${log.modelName}:`, itemErr.message || itemErr);
         }
+      };
+
+      // 1. Group 1 (Base entities) in parallel
+      if (group1.length > 0) {
+        await Promise.all(group1.map(log => processLog(log)));
+      }
+
+      // 2. Group 2 (Related entities) in parallel
+      if (group2.length > 0) {
+        await Promise.all(group2.map(log => processLog(log)));
+      }
+
+      // 3. Group 3 (Transactions/Movements) in parallel
+      if (group3.length > 0) {
+        await Promise.all(group3.map(log => processLog(log)));
       }
 
       console.log(`[Vercel Sync] Successfully processed ${logs.length} changes.`);
