@@ -5,8 +5,27 @@ export const maxDuration = 60;
 export const preferredRegion = 'sin1';
 
 const globalForSync = global as unknown as { syncPrisma: PrismaClient };
-const prisma = globalForSync.syncPrisma || new PrismaClient();
-globalForSync.syncPrisma = prisma;
+
+let prisma: PrismaClient;
+
+if (globalForSync.syncPrisma) {
+  prisma = globalForSync.syncPrisma;
+} else {
+  const databaseUrl = process.env.DATABASE_URL;
+  let urlWithLimit = databaseUrl;
+  if (databaseUrl && !databaseUrl.includes('connection_limit')) {
+    const separator = databaseUrl.includes('?') ? '&' : '?';
+    urlWithLimit = `${databaseUrl}${separator}connection_limit=2&pool_timeout=10`;
+  }
+  prisma = new PrismaClient({
+    datasources: {
+      db: {
+        url: urlWithLimit,
+      },
+    },
+  });
+  globalForSync.syncPrisma = prisma;
+}
 
 export async function OPTIONS() {
   return new NextResponse(null, {
