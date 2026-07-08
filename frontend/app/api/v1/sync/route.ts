@@ -16,8 +16,8 @@ if (globalForSync.syncPrisma) {
   
   if (databaseUrl) {
     // Keep the pooler host as it supports IPv4 (required by Vercel Lambda egress)
-    // We clean up pgbouncer transaction mode and set a moderate connection limit
-    finalUrl = databaseUrl.replace('pgbouncer=true', 'pgbouncer=false');
+    // We retain pgbouncer=true to disable prepared statement caching and prevent conflicts
+    finalUrl = databaseUrl;
     
     if (!finalUrl.includes('connection_limit')) {
       const separator = finalUrl.includes('?') ? '&' : '?';
