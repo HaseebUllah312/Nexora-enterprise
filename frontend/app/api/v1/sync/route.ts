@@ -46,13 +46,29 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ message: 'Unauthorized' }, { status: 401 });
   }
 
+  const logDebug = async (msg: string) => {
+    console.log(msg);
+    try {
+      await prisma.syncLog.create({
+        data: {
+          modelName: 'DebugLog',
+          recordId: 'vercel-sync',
+          action: msg.substring(0, 190), // Clamp length to fit standard DB limits
+          synced: true
+        }
+      });
+    } catch (e) {
+      // Ignore
+    }
+  };
+
   try {
     const body = await req.json();
     const { logs, lastPulledAt } = body;
 
     // 1. Process incoming logs from client
     if (Array.isArray(logs) && logs.length > 0) {
-      console.log(`[Vercel Sync] Received sync request with ${logs.length} entries.`);
+      await logDebug(`[Vercel Sync] Start processing ${logs.length} entries.`);
 
       const getModelPriority = (modelName: string): number => {
         if (['Role', 'Branch', 'Category'].includes(modelName)) return 1;
@@ -66,7 +82,7 @@ export async function POST(req: NextRequest) {
         compactedMap.set(log.recordId, log);
       }
       const compactedLogs = Array.from(compactedMap.values());
-      console.log(`[Vercel Sync] Compacted logs from ${logs.length} to ${compactedLogs.length} unique records.`);
+      await logDebug(`[Vercel Sync] Compacted to ${compactedLogs.length} unique records.`);
 
       const group1 = compactedLogs.filter(log => getModelPriority(log.modelName) === 1);
       const group2 = compactedLogs.filter(log => getModelPriority(log.modelName) === 2);
@@ -154,20 +170,26 @@ export async function POST(req: NextRequest) {
 
       // 1. Group 1 (Base entities) in parallel
       if (group1.length > 0) {
+        await logDebug(`[Vercel Sync] Processing Group 1 (${group1.length} records)...`);
         await Promise.all(group1.map(log => processLog(log)));
+        await logDebug(`[Vercel Sync] Group 1 finished.`);
       }
 
       // 2. Group 2 (Related entities) in parallel
       if (group2.length > 0) {
+        await logDebug(`[Vercel Sync] Processing Group 2 (${group2.length} records)...`);
         await Promise.all(group2.map(log => processLog(log)));
+        await logDebug(`[Vercel Sync] Group 2 finished.`);
       }
 
       // 3. Group 3 (Transactions/Movements) in parallel
       if (group3.length > 0) {
+        await logDebug(`[Vercel Sync] Processing Group 3 (${group3.length} records)...`);
         await Promise.all(group3.map(log => processLog(log)));
+        await logDebug(`[Vercel Sync] Group 3 finished.`);
       }
 
-      console.log(`[Vercel Sync] Successfully processed ${logs.length} changes.`);
+      await logDebug(`[Vercel Sync] Successfully processed ${logs.length} changes.`);
     }
 
     // 2. Fetch new changes on the cloud since lastPulledAt for the client to download
