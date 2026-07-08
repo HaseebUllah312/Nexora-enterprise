@@ -40,7 +40,7 @@ export async function POST(req: NextRequest) {
 
           if (log.action === 'DELETE') {
             try {
-              await (prisma[camelCaseModel] as any).delete({
+              await (prisma as any)[camelCaseModel].delete({
                 where: { id: log.recordId },
               });
             } catch (e) {
@@ -91,7 +91,7 @@ export async function POST(req: NextRequest) {
               await prisma.bomComponent.createMany({ data: cleanComponents });
             }
           } else {
-            await (prisma[camelCaseModel] as any).upsert({
+            await (prisma as any)[camelCaseModel].upsert({
               where: { id: log.recordId },
               create: log.data,
               update: log.data,
@@ -132,7 +132,7 @@ export async function POST(req: NextRequest) {
           }
 
           try {
-            recordData = await (prisma[camelCaseModel] as any).findUnique({
+            recordData = await (prisma as any)[camelCaseModel].findUnique({
               where: { id: log.recordId },
               ...(Object.keys(include).length > 0 ? { include } : {}),
             });
