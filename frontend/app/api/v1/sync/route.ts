@@ -62,18 +62,6 @@ export async function POST(req: NextRequest) {
 
   const logDebug = async (msg: string) => {
     console.log(msg);
-    try {
-      await prisma.syncLog.create({
-        data: {
-          modelName: 'DebugLog',
-          recordId: 'vercel-sync',
-          action: msg.substring(0, 190), // Clamp length to fit standard DB limits
-          synced: true
-        }
-      });
-    } catch (e) {
-      // Ignore
-    }
   };
 
   try {
