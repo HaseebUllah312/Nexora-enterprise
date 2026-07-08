@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from 'next/server';
 import { PrismaClient } from '@prisma/client';
 
 export const maxDuration = 60;
+export const preferredRegion = 'sin1';
 
 const globalForSync = global as unknown as { syncPrisma: PrismaClient };
 const prisma = globalForSync.syncPrisma || new PrismaClient();
