@@ -56,11 +56,14 @@ export async function POST(req: NextRequest) {
 
           if (log.modelName === 'SalesOrder') {
             const { items, ...orderData } = log.data;
-            await prisma.salesOrder.upsert({
-              where: { id: log.recordId },
-              create: orderData,
-              update: orderData,
-            });
+            try {
+              await prisma.salesOrder.create({ data: { ...orderData, id: log.recordId } });
+            } catch (e) {
+              await prisma.salesOrder.update({
+                where: { id: log.recordId },
+                data: orderData,
+              });
+            }
             await prisma.salesOrderItem.deleteMany({ where: { salesOrderId: log.recordId } });
             if (Array.isArray(items) && items.length > 0) {
               const cleanItems = items.map(({ product, ...item }: any) => item);
@@ -68,11 +71,14 @@ export async function POST(req: NextRequest) {
             }
           } else if (log.modelName === 'PurchaseOrder') {
             const { items, ...poData } = log.data;
-            await prisma.purchaseOrder.upsert({
-              where: { id: log.recordId },
-              create: poData,
-              update: poData,
-            });
+            try {
+              await prisma.purchaseOrder.create({ data: { ...poData, id: log.recordId } });
+            } catch (e) {
+              await prisma.purchaseOrder.update({
+                where: { id: log.recordId },
+                data: poData,
+              });
+            }
             await prisma.purchaseOrderItem.deleteMany({ where: { purchaseOrderId: log.recordId } });
             if (Array.isArray(items) && items.length > 0) {
               const cleanItems = items.map(({ product, ...item }: any) => item);
@@ -80,22 +86,28 @@ export async function POST(req: NextRequest) {
             }
           } else if (log.modelName === 'Bom') {
             const { components, ...bomData } = log.data;
-            await prisma.bom.upsert({
-              where: { id: log.recordId },
-              create: bomData,
-              update: bomData,
-            });
+            try {
+              await prisma.bom.create({ data: { ...bomData, id: log.recordId } });
+            } catch (e) {
+              await prisma.bom.update({
+                where: { id: log.recordId },
+                data: bomData,
+              });
+            }
             await prisma.bomComponent.deleteMany({ where: { bomId: log.recordId } });
             if (Array.isArray(components) && components.length > 0) {
               const cleanComponents = components.map(({ product, ...comp }: any) => comp);
               await prisma.bomComponent.createMany({ data: cleanComponents });
             }
           } else {
-            await (prisma as any)[camelCaseModel].upsert({
-              where: { id: log.recordId },
-              create: log.data,
-              update: log.data,
-            });
+            try {
+              await (prisma as any)[camelCaseModel].create({ data: { ...log.data, id: log.recordId } });
+            } catch (e) {
+              await (prisma as any)[camelCaseModel].update({
+                where: { id: log.recordId },
+                data: log.data,
+              });
+            }
           }
         } catch (itemErr: any) {
           console.error(`[Vercel Sync] Error processing sync log ${log.logId} for model ${log.modelName}:`, itemErr.message || itemErr);
