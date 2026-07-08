@@ -1,6 +1,8 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { PrismaClient } from '@prisma/client';
 
+export const maxDuration = 60;
+
 const globalForSync = global as unknown as { syncPrisma: PrismaClient };
 const prisma = globalForSync.syncPrisma || new PrismaClient();
 if (process.env.NODE_ENV !== 'production') globalForSync.syncPrisma = prisma;
