@@ -21,7 +21,9 @@ if (globalForSync.syncPrisma) {
     
     if (!finalUrl.includes('connection_limit')) {
       const separator = finalUrl.includes('?') ? '&' : '?';
-      finalUrl = `${finalUrl}${separator}connection_limit=3&pool_timeout=15`;
+      finalUrl = `${finalUrl}${separator}connection_limit=3&pool_timeout=15&statement_cache_size=0`;
+    } else if (!finalUrl.includes('statement_cache_size')) {
+      finalUrl = `${finalUrl}&statement_cache_size=0`;
     }
   }
 
