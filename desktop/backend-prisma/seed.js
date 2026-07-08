@@ -7,12 +7,26 @@ async function hash(pw) { return bcrypt.hash(pw, 12); }
 async function main() {
     console.log('━━━ Seeding FactoryERP Pro ━━━\n');
     // ── 1. ROLES ──────────────────────────────────────────────────────────────
-    const ROLE_NAMES = ['SUPER_ADMIN', 'OWNER', 'FACTORY_MANAGER', 'BRANCH_MANAGER',
-        'WAREHOUSE_MANAGER', 'SALES_MANAGER', 'SALES_STAFF', 'ACCOUNTANT',
-        'PRODUCTION_MANAGER', 'DRIVER', 'EMPLOYEE'];
+    const ROLE_MAP = {
+        SUPER_ADMIN: 'ac9c6765-eeac-4ec7-a3ed-70d64f6dd990',
+        OWNER: 'b3938780-38ed-4b8d-923f-6f0839d043cd',
+        FACTORY_MANAGER: '19453e50-48f1-4984-8bce-0bc2073eda54',
+        BRANCH_MANAGER: '16458e10-27e8-40e2-a6b9-3d59310c5587',
+        WAREHOUSE_MANAGER: 'd1997bbb-e951-4a8d-a09c-ed0220547cf8',
+        SALES_MANAGER: 'c78777f9-6957-4b83-86ab-4ce1f711a2d8',
+        SALES_STAFF: '8763bf52-80b1-4408-a486-93af79833c6e',
+        ACCOUNTANT: '4e60a0c5-f086-48a7-b8c3-586115defa5d',
+        PRODUCTION_MANAGER: 'c05f7b3d-1786-44e8-8763-dae7ecae30c9',
+        DRIVER: '3bf5d6d4-76d0-4124-82dc-a5140c22fc83',
+        EMPLOYEE: '1e998901-fbc5-4ebb-8ac4-3efce2920125'
+    };
     const roles = {};
-    for (const name of ROLE_NAMES) {
-        const r = await prisma.role.upsert({ where: { name }, update: {}, create: { name, isSystem: true } });
+    for (const [name, id] of Object.entries(ROLE_MAP)) {
+        const r = await prisma.role.upsert({
+            where: { name },
+            update: {},
+            create: { id, name, isSystem: true }
+        });
         roles[name] = r.id;
     }
     console.log('✓ Roles seeded');
