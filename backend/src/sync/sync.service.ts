@@ -72,7 +72,7 @@ export class SyncService implements OnModuleInit, OnModuleDestroy {
       const unsyncedLogs = await (this.prisma as any).syncLog.findMany({
         where: { synced: false },
         orderBy: { createdAt: 'asc' },
-        take: 50,
+        take: 10,
       });
 
       const batch: any[] = [];
