@@ -9,20 +9,16 @@ generator client {
 }
 
 datasource db {
-  provider  = "postgresql"
+  provider = "sqlite"
   url       = env("DATABASE_URL")
-  directUrl = env("DIRECT_URL")
+
 }
 
 // =====================================================================
 // AUTH / RBAC
 // =====================================================================
 
-enum UserStatus {
-  ACTIVE
-  INACTIVE
-  SUSPENDED
-}
+
 
 model Role {
   id          String       @id @default(uuid())
@@ -66,7 +62,7 @@ model User {
   passwordHash    String
   firstName       String
   lastName        String
-  status          UserStatus    @default(ACTIVE)
+  status          String    @default("ACTIVE")
   roleId          String
   role            Role          @relation(fields: [roleId], references: [id])
   branchId        String?
@@ -106,7 +102,7 @@ model AuditLog {
   action     String   // e.g. "CREATE", "UPDATE", "DELETE", "LOGIN"
   entity     String   // e.g. "SalesInvoice"
   entityId   String?
-  metadata   Json?
+  metadata   String?
   ipAddress  String?
   createdAt  DateTime @default(now())
 
@@ -194,10 +190,10 @@ model Product {
   brand         String?
   size          String?
   unit          String   // e.g. PCS, KG, METER
-  purchasePrice Decimal  @db.Decimal(14, 2)
-  salePrice     Decimal  @db.Decimal(14, 2)
-  openingStock  Decimal  @default(0) @db.Decimal(14, 2)
-  minimumStock  Decimal  @default(0) @db.Decimal(14, 2)
+  purchasePrice Decimal  
+  salePrice     Decimal  
+  openingStock  Decimal  @default(0) 
+  minimumStock  Decimal  @default(0) 
   isRawMaterial Boolean  @default(false)
   isActive      Boolean  @default(true)
   stock         Stock[]
@@ -221,7 +217,7 @@ model Stock {
   branch      Branch    @relation(fields: [branchId], references: [id])
   warehouseId String
   warehouse   Warehouse @relation(fields: [warehouseId], references: [id])
-  quantity    Decimal   @default(0) @db.Decimal(14, 2)
+  quantity    Decimal   @default(0) 
   batchNumber String?
   serialNumber String?
   updatedAt   DateTime  @updatedAt
@@ -231,23 +227,14 @@ model Stock {
   @@map("stock")
 }
 
-enum StockMovementType {
-  STOCK_IN
-  STOCK_OUT
-  TRANSFER
-  ADJUSTMENT
-  PRODUCTION_CONSUMPTION
-  PRODUCTION_OUTPUT
-  SALE
-  PURCHASE
-}
+
 
 model StockMovement {
   id          String            @id @default(uuid())
   productId   String
   product     Product           @relation(fields: [productId], references: [id])
-  type        StockMovementType
-  quantity    Decimal           @db.Decimal(14, 2)
+  type        String
+  quantity    Decimal           
   referenceType String?         // "SalesInvoice", "PurchaseInvoice", "StockTransfer", etc.
   referenceId String?
   notes       String?
@@ -257,14 +244,7 @@ model StockMovement {
   @@map("stock_movements")
 }
 
-enum TransferStatus {
-  REQUESTED
-  APPROVED
-  DISPATCHED
-  IN_TRANSIT
-  RECEIVED
-  REJECTED
-}
+
 
 model StockTransfer {
   id           String         @id @default(uuid())
@@ -273,8 +253,8 @@ model StockTransfer {
   fromBranch   Branch         @relation("TransferFromBranch", fields: [fromBranchId], references: [id])
   toBranchId   String
   toBranch     Branch         @relation("TransferToBranch", fields: [toBranchId], references: [id])
-  status       TransferStatus @default(REQUESTED)
-  items        Json           // [{ productId, quantity }]
+  status       String @default("REQUESTED")
+  items        String           // [{ productId, quantity }]
   requestedAt  DateTime       @default(now())
   approvedAt   DateTime?
   dispatchedAt DateTime?
@@ -294,8 +274,8 @@ model Customer {
   phone       String?
   email       String?
   taxNumber   String?
-  creditLimit Decimal      @default(0) @db.Decimal(14, 2)
-  balance     Decimal      @default(0) @db.Decimal(14, 2)
+  creditLimit Decimal      @default(0) 
+  balance     Decimal      @default(0) 
   branchId    String
   branch      Branch       @relation(fields: [branchId], references: [id])
   salesOrders SalesOrder[]
@@ -313,7 +293,7 @@ model Supplier {
   phone           String?
   email           String?
   taxNumber       String?
-  balance         Decimal         @default(0) @db.Decimal(14, 2)
+  balance         Decimal         @default(0) 
   branchId        String
   branch          Branch          @relation(fields: [branchId], references: [id])
   purchaseOrders  PurchaseOrder[]
@@ -328,13 +308,7 @@ model Supplier {
 // SALES
 // =====================================================================
 
-enum SalesOrderStatus {
-  QUOTATION
-  CONFIRMED
-  DELIVERED
-  INVOICED
-  CANCELLED
-}
+
 
 model SalesOrder {
   id          String           @id @default(uuid())
@@ -343,7 +317,7 @@ model SalesOrder {
   customer    Customer         @relation(fields: [customerId], references: [id])
   branchId    String
   branch      Branch           @relation(fields: [branchId], references: [id])
-  status      SalesOrderStatus @default(QUOTATION)
+  status      String @default("QUOTATION")
   items       SalesOrderItem[]
   invoice     SalesInvoice?
   challan     DeliveryChallan?
@@ -363,31 +337,27 @@ model SalesOrderItem {
   salesOrder   SalesOrder @relation(fields: [salesOrderId], references: [id], onDelete: Cascade)
   productId    String
   product      Product    @relation(fields: [productId], references: [id])
-  quantity     Decimal    @db.Decimal(14, 2)
-  unitPrice    Decimal    @db.Decimal(14, 2)
-  discount     Decimal    @default(0) @db.Decimal(14, 2)
+  quantity     Decimal    
+  unitPrice    Decimal    
+  discount     Decimal    @default(0) 
 
   @@map("sales_order_items")
 }
 
-enum PaymentMethod {
-  CASH
-  BANK
-  CREDIT
-}
+
 
 model SalesInvoice {
   id           String        @id @default(uuid())
   invoiceNo    String        @unique
   salesOrderId String        @unique
   salesOrder   SalesOrder    @relation(fields: [salesOrderId], references: [id])
-  totalAmount  Decimal       @db.Decimal(14, 2)
+  totalAmount  Decimal       
   saleReturns  SaleReturn[]
-  paidAmount   Decimal       @default(0) @db.Decimal(14, 2)
-  paymentMethod PaymentMethod @default(CASH)
+  paidAmount   Decimal       @default(0) 
+  paymentMethod String @default("CASH")
   dueDate      DateTime?
-  taxRate      Decimal       @default(0) @db.Decimal(5, 2)
-  taxAmount    Decimal       @default(0) @db.Decimal(14, 2)
+  taxRate      Decimal       @default(0) 
+  taxAmount    Decimal       @default(0) 
   createdAt    DateTime      @default(now())
 
   @@map("sales_invoices")
@@ -397,13 +367,7 @@ model SalesInvoice {
 // PURCHASE
 // =====================================================================
 
-enum PurchaseOrderStatus {
-  REQUISITION
-  ORDERED
-  RECEIVED
-  INVOICED
-  CANCELLED
-}
+
 
 model PurchaseOrder {
   id          String              @id @default(uuid())
@@ -412,7 +376,7 @@ model PurchaseOrder {
   supplier    Supplier            @relation(fields: [supplierId], references: [id])
   branchId    String
   branch      Branch              @relation(fields: [branchId], references: [id])
-  status      PurchaseOrderStatus @default(REQUISITION)
+  status      String @default("REQUISITION")
   items       PurchaseOrderItem[]
   invoice     PurchaseInvoice?
   createdById String
@@ -431,8 +395,8 @@ model PurchaseOrderItem {
   purchaseOrder   PurchaseOrder @relation(fields: [purchaseOrderId], references: [id], onDelete: Cascade)
   productId       String
   product         Product       @relation(fields: [productId], references: [id])
-  quantity        Decimal       @db.Decimal(14, 2)
-  unitCost        Decimal       @db.Decimal(14, 2)
+  quantity        Decimal       
+  unitCost        Decimal       
 
   @@map("purchase_order_items")
 }
@@ -442,9 +406,9 @@ model PurchaseInvoice {
   invoiceNo       String        @unique
   purchaseOrderId String        @unique
   purchaseOrder   PurchaseOrder @relation(fields: [purchaseOrderId], references: [id])
-  totalAmount     Decimal       @db.Decimal(14, 2)
+  totalAmount     Decimal       
   purchaseReturns PurchaseReturn[]
-  paidAmount      Decimal       @default(0) @db.Decimal(14, 2)
+  paidAmount      Decimal       @default(0) 
   createdAt       DateTime      @default(now())
 
   @@map("purchase_invoices")
@@ -472,17 +436,12 @@ model BomComponent {
   bom       Bom     @relation(fields: [bomId], references: [id], onDelete: Cascade)
   productId String  // raw material
   product   Product @relation(fields: [productId], references: [id])
-  quantity  Decimal @db.Decimal(14, 4)
+  quantity  Decimal 
 
   @@map("bom_components")
 }
 
-enum ProductionOrderStatus {
-  PLANNED
-  IN_PROGRESS
-  COMPLETED
-  CANCELLED
-}
+
 
 model ProductionOrder {
   id           String                 @id @default(uuid())
@@ -491,10 +450,10 @@ model ProductionOrder {
   bom          Bom                    @relation(fields: [bomId], references: [id])
   branchId     String
   branch       Branch                 @relation(fields: [branchId], references: [id])
-  quantityPlanned Decimal             @db.Decimal(14, 2)
-  quantityProduced Decimal            @default(0) @db.Decimal(14, 2)
-  wastage      Decimal                @default(0) @db.Decimal(14, 2)
-  status       ProductionOrderStatus  @default(PLANNED)
+  quantityPlanned Decimal             
+  quantityProduced Decimal            @default(0) 
+  wastage      Decimal                @default(0) 
+  status       String  @default("PLANNED")
   startedAt    DateTime?
   completedAt  DateTime?
   createdAt    DateTime               @default(now())
@@ -507,23 +466,15 @@ model ProductionOrder {
 // ACCOUNTING
 // =====================================================================
 
-enum AccountType {
-  CASH
-  BANK
-  RECEIVABLE
-  PAYABLE
-  EXPENSE
-  INCOME
-  EQUITY
-}
+
 
 model Account {
   id          String        @id @default(uuid())
   name        String
-  type        AccountType
+  type        String
   branchId    String
   branch      Branch        @relation(fields: [branchId], references: [id])
-  balance     Decimal       @default(0) @db.Decimal(14, 2)
+  balance     Decimal       @default(0) 
   transactions Transaction[]
   createdAt   DateTime      @default(now())
 
@@ -531,17 +482,14 @@ model Account {
   @@map("accounts")
 }
 
-enum TransactionType {
-  DEBIT
-  CREDIT
-}
+
 
 model Transaction {
   id          String          @id @default(uuid())
   accountId   String
   account     Account         @relation(fields: [accountId], references: [id])
-  type        TransactionType
-  amount      Decimal         @db.Decimal(14, 2)
+  type        String
+  amount      Decimal         
   description String?
   referenceType String?
   referenceId String?
@@ -563,7 +511,7 @@ model Employee {
   designation String?
   branchId    String
   branch      Branch       @relation(fields: [branchId], references: [id])
-  salary      Decimal      @default(0) @db.Decimal(14, 2)
+  salary      Decimal      @default(0) 
   joinDate    DateTime?
   attendance  Attendance[]
   salarySlips SalarySlip[]
@@ -573,12 +521,7 @@ model Employee {
   @@map("employees")
 }
 
-enum AttendanceStatus {
-  PRESENT
-  ABSENT
-  LEAVE
-  HALF_DAY
-}
+
 
 model Attendance {
   id         String           @id @default(uuid())
@@ -586,8 +529,8 @@ model Attendance {
   employee   Employee         @relation(fields: [employeeId], references: [id])
   userId     String?
   user       User?            @relation(fields: [userId], references: [id])
-  date       DateTime         @db.Date
-  status     AttendanceStatus
+  date       DateTime         
+  status     String
   checkIn    DateTime?
   checkOut   DateTime?
 
@@ -631,18 +574,12 @@ model Delivery {
 // NOTIFICATIONS
 // =====================================================================
 
-enum NotificationType {
-  LOW_STOCK
-  NEW_ORDER
-  PAYMENT_RECEIVED
-  PRODUCTION_COMPLETED
-  SYSTEM
-}
+
 
 model Notification {
   id        String           @id @default(uuid())
   userId    String?
-  type      NotificationType
+  type      String
   title     String
   message   String
   isRead    Boolean          @default(false)
@@ -695,8 +632,8 @@ model SaleReturn {
   invoiceId   String
   invoice     SalesInvoice @relation(fields: [invoiceId], references: [id])
   reason      String
-  items       Json     // [{ productId, productName, quantity, unitPrice }]
-  totalAmount Decimal  @db.Decimal(14, 2)
+  items       String     // [{ productId, productName, quantity, unitPrice }]
+  totalAmount Decimal  
   branchId    String
   branch      Branch   @relation(fields: [branchId], references: [id])
   createdAt   DateTime @default(now())
@@ -714,8 +651,8 @@ model PurchaseReturn {
   invoiceId   String
   invoice     PurchaseInvoice @relation(fields: [invoiceId], references: [id])
   reason      String
-  items       Json
-  totalAmount Decimal  @db.Decimal(14, 2)
+  items       String
+  totalAmount Decimal  
   branchId    String
   branch      Branch   @relation(fields: [branchId], references: [id])
   createdAt   DateTime @default(now())
@@ -732,7 +669,7 @@ model Expense {
   expenseNo   String   @unique
   title       String
   category    String   // UTILITIES, RENT, SALARY, TRANSPORT, MAINTENANCE, OTHER
-  amount      Decimal  @db.Decimal(14, 2)
+  amount      Decimal  
   paidFrom    String   // CASH | BANK
   branchId    String
   branch      Branch   @relation(fields: [branchId], references: [id])
@@ -758,7 +695,7 @@ model DeliveryChallan {
   vehicle     Vehicle? @relation(fields: [vehicleId], references: [id])
   driverName  String?
   deliveredTo String?
-  items       Json
+  items       String
   status      String   @default("PENDING") // PENDING | DELIVERED | RETURNED
   branchId    String
   branch      Branch   @relation(fields: [branchId], references: [id])
@@ -773,7 +710,7 @@ model VehicleLog {
   vehicleId   String
   vehicle     Vehicle  @relation(fields: [vehicleId], references: [id])
   type        String   // FUEL | MAINTENANCE
-  amount      Decimal  @db.Decimal(14, 2)
+  amount      Decimal  
   odometer    Int?
   description String?
   logDate     DateTime @default(now())
@@ -789,10 +726,10 @@ model SalarySlip {
   employee    Employee @relation(fields: [employeeId], references: [id])
   month       Int
   year        Int
-  basicSalary Decimal  @db.Decimal(14, 2)
-  bonus       Decimal  @default(0) @db.Decimal(14, 2)
-  deductions  Decimal  @default(0) @db.Decimal(14, 2)
-  netSalary   Decimal  @db.Decimal(14, 2)
+  basicSalary Decimal  
+  bonus       Decimal  @default(0) 
+  deductions  Decimal  @default(0) 
+  netSalary   Decimal  
   paidOn      DateTime?
   status      String   @default("PENDING") // PENDING | PAID
   createdAt   DateTime @default(now())

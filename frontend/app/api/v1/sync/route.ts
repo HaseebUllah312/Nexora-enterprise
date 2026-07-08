@@ -15,15 +15,13 @@ if (globalForSync.syncPrisma) {
   let finalUrl = databaseUrl;
   
   if (databaseUrl) {
-    // Programmatically bypass pgBouncer connection pooler on Vercel by rewriting to the direct database IPv6 host
-    finalUrl = databaseUrl
-      .replace(/[a-z0-9-]+\.pooler\.supabase\.com/gi, 'db.xyxbsebdovvmcmzingmh.supabase.co')
-      .replace(':6543', ':5432');
+    // Keep the pooler host as it supports IPv4 (required by Vercel Lambda egress)
+    // We clean up pgbouncer transaction mode and set a moderate connection limit
+    finalUrl = databaseUrl.replace('pgbouncer=true', 'pgbouncer=false');
     
-    // Set a larger connection limit since we are not using the pooler
     if (!finalUrl.includes('connection_limit')) {
       const separator = finalUrl.includes('?') ? '&' : '?';
-      finalUrl = `${finalUrl}${separator}connection_limit=10`;
+      finalUrl = `${finalUrl}${separator}connection_limit=3&pool_timeout=15`;
     }
   }
 
@@ -182,24 +180,30 @@ export async function POST(req: NextRequest) {
         }
       };
 
-      // 1. Group 1 (Base entities) in parallel
+      // 1. Group 1 (Base entities) sequentially
       if (group1.length > 0) {
-        await logDebug(`[Vercel Sync] Processing Group 1 (${group1.length} records)...`);
-        await Promise.all(group1.map(log => processLog(log)));
+        await logDebug(`[Vercel Sync] Processing Group 1 (${group1.length} records) sequentially...`);
+        for (const log of group1) {
+          await processLog(log);
+        }
         await logDebug(`[Vercel Sync] Group 1 finished.`);
       }
 
-      // 2. Group 2 (Related entities) in parallel
+      // 2. Group 2 (Related entities) sequentially
       if (group2.length > 0) {
-        await logDebug(`[Vercel Sync] Processing Group 2 (${group2.length} records)...`);
-        await Promise.all(group2.map(log => processLog(log)));
+        await logDebug(`[Vercel Sync] Processing Group 2 (${group2.length} records) sequentially...`);
+        for (const log of group2) {
+          await processLog(log);
+        }
         await logDebug(`[Vercel Sync] Group 2 finished.`);
       }
 
-      // 3. Group 3 (Transactions/Movements) in parallel
+      // 3. Group 3 (Transactions/Movements) sequentially
       if (group3.length > 0) {
-        await logDebug(`[Vercel Sync] Processing Group 3 (${group3.length} records)...`);
-        await Promise.all(group3.map(log => processLog(log)));
+        await logDebug(`[Vercel Sync] Processing Group 3 (${group3.length} records) sequentially...`);
+        for (const log of group3) {
+          await processLog(log);
+        }
         await logDebug(`[Vercel Sync] Group 3 finished.`);
       }
 
