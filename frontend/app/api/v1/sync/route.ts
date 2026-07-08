@@ -96,115 +96,107 @@ export async function POST(req: NextRequest) {
       const compactedLogs = Array.from(compactedMap.values());
       await logDebug(`[Vercel Sync] Compacted to ${compactedLogs.length} unique records.`);
 
-      const group1 = compactedLogs.filter(log => getModelPriority(log.modelName) === 1);
-      const group2 = compactedLogs.filter(log => getModelPriority(log.modelName) === 2);
-      const group3 = compactedLogs.filter(log => getModelPriority(log.modelName) === 3);
+      // Sort logs by priority so that base dependencies are created before child transactions
+      const sortedLogs = [...compactedLogs].sort((a, b) => getModelPriority(a.modelName) - getModelPriority(b.modelName));
 
-      const processLog = async (log: any) => {
-        try {
+      const operations: any[] = [];
+      const deleteLogs: any[] = [];
+
+      for (const log of sortedLogs) {
+        const camelCaseModel = log.modelName.charAt(0).toLowerCase() + log.modelName.slice(1);
+
+        if (log.action === 'DELETE') {
+          deleteLogs.push(log);
+          continue;
+        }
+
+        if (!log.data) continue;
+
+        if (log.modelName === 'SalesOrder') {
+          const { items, ...orderData } = log.data;
+          operations.push(
+            prisma.salesOrder.upsert({
+              where: { id: log.recordId },
+              create: { ...orderData, id: log.recordId },
+              update: orderData,
+            })
+          );
+          operations.push(
+            prisma.salesOrderItem.deleteMany({ where: { salesOrderId: log.recordId } })
+          );
+          if (Array.isArray(items) && items.length > 0) {
+            const cleanItems = items.map(({ product, ...item }: any) => item);
+            operations.push(
+              prisma.salesOrderItem.createMany({ data: cleanItems })
+            );
+          }
+        } else if (log.modelName === 'PurchaseOrder') {
+          const { items, ...poData } = log.data;
+          operations.push(
+            prisma.purchaseOrder.upsert({
+              where: { id: log.recordId },
+              create: { ...poData, id: log.recordId },
+              update: poData,
+            })
+          );
+          operations.push(
+            prisma.purchaseOrderItem.deleteMany({ where: { purchaseOrderId: log.recordId } })
+          );
+          if (Array.isArray(items) && items.length > 0) {
+            const cleanItems = items.map(({ product, ...item }: any) => item);
+            operations.push(
+              prisma.purchaseOrderItem.createMany({ data: cleanItems })
+            );
+          }
+        } else if (log.modelName === 'Bom') {
+          const { components, ...bomData } = log.data;
+          operations.push(
+            prisma.bom.upsert({
+              where: { id: log.recordId },
+              create: { ...bomData, id: log.recordId },
+              update: bomData,
+            })
+          );
+          operations.push(
+            prisma.bomComponent.deleteMany({ where: { bomId: log.recordId } })
+          );
+          if (Array.isArray(components) && components.length > 0) {
+            const cleanComponents = components.map(({ product, ...comp }: any) => comp);
+            operations.push(
+              prisma.bomComponent.createMany({ data: cleanComponents })
+            );
+          }
+        } else {
+          operations.push(
+            (prisma as any)[camelCaseModel].upsert({
+              where: { id: log.recordId },
+              create: { ...log.data, id: log.recordId },
+              update: log.data,
+            })
+          );
+        }
+      }
+
+      // Execute deletes first (outside transaction, safely caught)
+      if (deleteLogs.length > 0) {
+        await logDebug(`[Vercel Sync] Executing ${deleteLogs.length} deletes...`);
+        for (const log of deleteLogs) {
           const camelCaseModel = log.modelName.charAt(0).toLowerCase() + log.modelName.slice(1);
-
-          if (log.action === 'DELETE') {
-            try {
-              await (prisma as any)[camelCaseModel].delete({
-                where: { id: log.recordId },
-              });
-            } catch (e) {
-              console.log(`[Vercel Sync] Record ${log.recordId} for model ${log.modelName} already deleted or not found.`);
-            }
-            return;
+          try {
+            await (prisma as any)[camelCaseModel].delete({
+              where: { id: log.recordId },
+            });
+          } catch (e) {
+            // Ignore if already deleted
           }
-
-          if (!log.data) {
-            console.warn(`[Vercel Sync] Log ${log.logId} has action ${log.action} but data is null.`);
-            return;
-          }
-
-          if (log.modelName === 'SalesOrder') {
-            const { items, ...orderData } = log.data;
-            try {
-              await prisma.salesOrder.create({ data: { ...orderData, id: log.recordId } });
-            } catch (e) {
-              await prisma.salesOrder.update({
-                where: { id: log.recordId },
-                data: orderData,
-              });
-            }
-            await prisma.salesOrderItem.deleteMany({ where: { salesOrderId: log.recordId } });
-            if (Array.isArray(items) && items.length > 0) {
-              const cleanItems = items.map(({ product, ...item }: any) => item);
-              await prisma.salesOrderItem.createMany({ data: cleanItems });
-            }
-          } else if (log.modelName === 'PurchaseOrder') {
-            const { items, ...poData } = log.data;
-            try {
-              await prisma.purchaseOrder.create({ data: { ...poData, id: log.recordId } });
-            } catch (e) {
-              await prisma.purchaseOrder.update({
-                where: { id: log.recordId },
-                data: poData,
-              });
-            }
-            await prisma.purchaseOrderItem.deleteMany({ where: { purchaseOrderId: log.recordId } });
-            if (Array.isArray(items) && items.length > 0) {
-              const cleanItems = items.map(({ product, ...item }: any) => item);
-              await prisma.purchaseOrderItem.createMany({ data: cleanItems });
-            }
-          } else if (log.modelName === 'Bom') {
-            const { components, ...bomData } = log.data;
-            try {
-              await prisma.bom.create({ data: { ...bomData, id: log.recordId } });
-            } catch (e) {
-              await prisma.bom.update({
-                where: { id: log.recordId },
-                data: bomData,
-              });
-            }
-            await prisma.bomComponent.deleteMany({ where: { bomId: log.recordId } });
-            if (Array.isArray(components) && components.length > 0) {
-              const cleanComponents = components.map(({ product, ...comp }: any) => comp);
-              await prisma.bomComponent.createMany({ data: cleanComponents });
-            }
-          } else {
-            try {
-              await (prisma as any)[camelCaseModel].create({ data: { ...log.data, id: log.recordId } });
-            } catch (e) {
-              await (prisma as any)[camelCaseModel].update({
-                where: { id: log.recordId },
-                data: log.data,
-              });
-            }
-          }
-        } catch (itemErr: any) {
-          console.error(`[Vercel Sync] Error processing sync log ${log.logId} for model ${log.modelName}:`, itemErr.message || itemErr);
         }
-      };
-
-      // 1. Group 1 (Base entities) sequentially
-      if (group1.length > 0) {
-        await logDebug(`[Vercel Sync] Processing Group 1 (${group1.length} records) sequentially...`);
-        for (const log of group1) {
-          await processLog(log);
-        }
-        await logDebug(`[Vercel Sync] Group 1 finished.`);
       }
 
-      // 2. Group 2 (Related entities) sequentially
-      if (group2.length > 0) {
-        await logDebug(`[Vercel Sync] Processing Group 2 (${group2.length} records) sequentially...`);
-        for (const log of group2) {
-          await processLog(log);
-        }
-        await logDebug(`[Vercel Sync] Group 2 finished.`);
-      }
-
-      // 3. Group 3 (Transactions/Movements) sequentially
-      if (group3.length > 0) {
-        await logDebug(`[Vercel Sync] Processing Group 3 (${group3.length} records) sequentially...`);
-        for (const log of group3) {
-          await processLog(log);
-        }
-        await logDebug(`[Vercel Sync] Group 3 finished.`);
+      // Execute all upserts and nested item operations in a single atomic transaction
+      if (operations.length > 0) {
+        await logDebug(`[Vercel Sync] Executing transaction with ${operations.length} database operations...`);
+        await prisma.$transaction(operations);
+        await logDebug(`[Vercel Sync] Transaction completed successfully.`);
       }
 
       await logDebug(`[Vercel Sync] Successfully processed ${logs.length} changes.`);
