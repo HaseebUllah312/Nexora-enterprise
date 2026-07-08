@@ -156,35 +156,67 @@ export async function POST(req: NextRequest) {
         orderBy: { createdAt: 'asc' },
       });
 
-      for (const log of newCloudLogs) {
-        let recordData = null;
-        if (log.action === 'CREATE' || log.action === 'UPDATE') {
-          const camelCaseModel = log.modelName.charAt(0).toLowerCase() + log.modelName.slice(1);
+      if (newCloudLogs.length > 0) {
+        // Group log entries by modelName to batch fetch records
+        const logsByModel: { [modelName: string]: any[] } = {};
+        for (const log of newCloudLogs) {
+          if (log.action === 'CREATE' || log.action === 'UPDATE') {
+            if (!logsByModel[log.modelName]) {
+              logsByModel[log.modelName] = [];
+            }
+            logsByModel[log.modelName].push(log);
+          }
+        }
+
+        // Batch fetch records for each model
+        const fetchedDataByModelAndId: { [modelName: string]: { [id: string]: any } } = {};
+        const fetchPromises = Object.keys(logsByModel).map(async (modelName) => {
+          const modelLogs = logsByModel[modelName];
+          const recordIds = Array.from(new Set(modelLogs.map(l => l.recordId)));
+          const camelCaseModel = modelName.charAt(0).toLowerCase() + modelName.slice(1);
+          
           const include: any = {};
-          if (log.modelName === 'SalesOrder') {
+          if (modelName === 'SalesOrder') {
             include.items = true;
-          } else if (log.modelName === 'PurchaseOrder') {
+          } else if (modelName === 'PurchaseOrder') {
             include.items = true;
-          } else if (log.modelName === 'Bom') {
+          } else if (modelName === 'Bom') {
             include.components = true;
           }
 
           try {
-            recordData = await (prisma as any)[camelCaseModel].findUnique({
-              where: { id: log.recordId },
+            const records = await (prisma as any)[camelCaseModel].findMany({
+              where: { id: { in: recordIds } },
               ...(Object.keys(include).length > 0 ? { include } : {}),
             });
+            
+            if (!fetchedDataByModelAndId[modelName]) {
+              fetchedDataByModelAndId[modelName] = {};
+            }
+            for (const r of records) {
+              fetchedDataByModelAndId[modelName][r.id] = r;
+            }
           } catch (e) {
-            console.error(`[Vercel Sync] Failed to fetch cloud record for model ${log.modelName} (ID: ${log.recordId}):`, e);
+            console.error(`[Vercel Sync] Failed to batch fetch cloud records for model ${modelName}:`, e);
           }
-        }
-
-        cloudChanges.push({
-          modelName: log.modelName,
-          recordId: log.recordId,
-          action: log.action,
-          data: recordData,
         });
+
+        // Wait for all batch fetches to complete in parallel
+        await Promise.all(fetchPromises);
+
+        // Build the cloudChanges response in correct temporal order
+        for (const log of newCloudLogs) {
+          let recordData = null;
+          if (log.action === 'CREATE' || log.action === 'UPDATE') {
+            recordData = fetchedDataByModelAndId[log.modelName]?.[log.recordId] || null;
+          }
+          cloudChanges.push({
+            modelName: log.modelName,
+            recordId: log.recordId,
+            action: log.action,
+            data: recordData,
+          });
+        }
       }
     }
 
