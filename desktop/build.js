@@ -200,6 +200,64 @@ if (fs.existsSync(backendNodeModules)) {
   }
 }
 
+// Step 3b: Copy Next.js standalone frontend build
+console.log('\n📦 Step 3b/4: Copying Next.js standalone frontend...');
+const nextStandalone = path.join(ROOT, 'frontend', '.next', 'standalone');
+const nextStatic = path.join(ROOT, 'frontend', '.next', 'static');
+const nextPublic = path.join(ROOT, 'frontend', 'public');
+const desktopStandalone = path.join(DESKTOP, 'frontend-standalone');
+
+if (fs.existsSync(nextStandalone)) {
+  if (fs.existsSync(desktopStandalone)) {
+    const files = fs.readdirSync(desktopStandalone);
+    for (const file of files) {
+      if (file !== 'node_modules') {
+        cleanDir(path.join(desktopStandalone, file));
+      }
+    }
+  } else {
+    fs.mkdirSync(desktopStandalone, { recursive: true });
+  }
+
+  // Copy standalone server files (excluding node_modules)
+  const entries = fs.readdirSync(nextStandalone, { withFileTypes: true });
+  for (const entry of entries) {
+    if (entry.name === 'node_modules') continue;
+    const srcPath = path.join(nextStandalone, entry.name);
+    const destPath = path.join(desktopStandalone, entry.name);
+    if (entry.isDirectory()) {
+      copyDir(srcPath, destPath);
+    } else {
+      fs.copyFileSync(srcPath, destPath);
+    }
+  }
+
+  // Copy standalone/node_modules if it exists
+  const standaloneNodeModules = path.join(nextStandalone, 'node_modules');
+  const desktopStandaloneNodeModules = path.join(desktopStandalone, 'node_modules');
+  if (fs.existsSync(standaloneNodeModules)) {
+    copyDir(standaloneNodeModules, desktopStandaloneNodeModules);
+  }
+
+  // Copy static assets
+  const destStatic = path.join(desktopStandalone, '.next', 'static');
+  cleanDir(destStatic);
+  if (fs.existsSync(nextStatic)) {
+    copyDir(nextStatic, destStatic);
+  }
+
+  // Copy public assets
+  const destPublic = path.join(desktopStandalone, 'public');
+  cleanDir(destPublic);
+  if (fs.existsSync(nextPublic)) {
+    copyDir(nextPublic, destPublic);
+  }
+  
+  console.log('  ✓ Standalone frontend copied successfully.');
+} else {
+  console.warn('  ⚠ Next.js standalone build not found! Make sure you build the frontend first.');
+}
+
 // Copy SQLite prisma client to frontend-standalone to ensure Next.js uses the SQLite client
 console.log('  → Copying SQLite Prisma client to frontend-standalone/node_modules...');
 const frontendNodeModules = path.join(DESKTOP, 'frontend-standalone', 'node_modules');
