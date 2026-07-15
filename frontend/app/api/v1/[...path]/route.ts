@@ -88,6 +88,51 @@ export async function GET(req: NextRequest, { params }: { params: Promise<{ path
   try {
     const route = path.join('/');
 
+    // ─── CLEAR DATA (runs directly via Prisma, no local backend needed) ────────
+    if (route === 'sync/clear-data' && req.method === 'POST') {
+      const body = await req.json();
+      const scope: string = body?.scope || '';
+
+      const orderedModels = [
+        'saleReturn', 'purchaseReturn', 'salesInvoice', 'purchaseInvoice',
+        'delivery', 'deliveryChallan', 'stockMovement', 'stockTransfer', 'stock',
+        'salesOrderItem', 'salesOrder', 'purchaseOrderItem', 'purchaseOrder',
+        'bomComponent', 'bom', 'productionOrder', 'expense', 'transaction',
+        'product', 'category', 'customer', 'supplier', 'syncLog'
+      ] as const;
+
+      const salesModels    = ['saleReturn', 'salesInvoice', 'salesOrderItem', 'salesOrder'] as const;
+      const purchaseModels = ['purchaseReturn', 'purchaseInvoice', 'purchaseOrderItem', 'purchaseOrder'] as const;
+      const inventoryModels = ['stockMovement', 'stockTransfer', 'stock'] as const;
+      const productModels  = ['bomComponent', 'bom', 'productionOrder', 'product', 'category'] as const;
+      const accountingModels = ['transaction', 'expense'] as const;
+
+      let modelsToDelete: readonly string[] = [];
+
+      if (scope === 'sales')      modelsToDelete = salesModels;
+      else if (scope === 'purchases') modelsToDelete = purchaseModels;
+      else if (scope === 'inventory') modelsToDelete = inventoryModels;
+      else if (scope === 'products')  modelsToDelete = productModels;
+      else if (scope === 'customers') modelsToDelete = ['customer'] as const;
+      else if (scope === 'suppliers') modelsToDelete = ['supplier'] as const;
+      else if (scope === 'accounting') modelsToDelete = accountingModels;
+      else if (scope === 'all')   modelsToDelete = orderedModels;
+      else return errorResponse('Invalid scope', 400);
+
+      const deleted: Record<string, number> = {};
+      const p = prisma as any;
+      for (const model of modelsToDelete) {
+        try {
+          if (p[model]) {
+            const r = await p[model].deleteMany();
+            deleted[model] = r.count;
+          }
+        } catch (_) { deleted[model] = 0; }
+      }
+
+      return corsResponse({ success: true, scope, deleted });
+    }
+
     if (route.startsWith('sync/')) {
       try {
         const authHeader = req.headers.get('authorization');
