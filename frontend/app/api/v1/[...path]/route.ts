@@ -866,6 +866,41 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ pat
     }
   }
 
+  // ─── CLEAR DATA (runs directly via Prisma in POST handler, no local backend needed) ────
+  if (route === 'sync/clear-data') {
+    const scope: string = body?.scope || '';
+
+    const salesModels     = ['saleReturn', 'salesInvoice', 'salesOrderItem', 'salesOrder'] as const;
+    const purchaseModels  = ['purchaseReturn', 'purchaseInvoice', 'purchaseOrderItem', 'purchaseOrder'] as const;
+    const inventoryModels = ['stockMovement', 'stockTransfer', 'stock'] as const;
+    const productModels   = ['bomComponent', 'bom', 'productionOrder', 'product', 'category'] as const;
+    const accountingModels = ['transaction', 'expense'] as const;
+    const allModels = [
+      ...salesModels, ...purchaseModels, ...inventoryModels,
+      ...productModels, 'customer', 'supplier', ...accountingModels, 'syncLog'
+    ] as const;
+
+    let modelsToDelete: readonly string[] = [];
+    if      (scope === 'sales')      modelsToDelete = salesModels;
+    else if (scope === 'purchases')  modelsToDelete = purchaseModels;
+    else if (scope === 'inventory')  modelsToDelete = inventoryModels;
+    else if (scope === 'products')   modelsToDelete = productModels;
+    else if (scope === 'customers')  modelsToDelete = ['customer'] as const;
+    else if (scope === 'suppliers')  modelsToDelete = ['supplier'] as const;
+    else if (scope === 'accounting') modelsToDelete = accountingModels;
+    else if (scope === 'all')        modelsToDelete = allModels;
+    else return errorResponse('Invalid scope', 400);
+
+    const deleted: Record<string, number> = {};
+    const p = prisma as any;
+    for (const model of modelsToDelete) {
+      try {
+        if (p[model]) { const r = await p[model].deleteMany(); deleted[model] = r.count; }
+      } catch (_) { deleted[model] = 0; }
+    }
+    return corsResponse({ success: true, scope, deleted });
+  }
+
   if (route.startsWith('sync/')) {
     try {
       const authHeader = req.headers.get('authorization');
