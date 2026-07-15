@@ -1,6 +1,6 @@
 'use client';
 import { useState, useEffect } from 'react';
-import { User, Lock, Globe, Bell, CheckCircle, Eye, EyeOff, Database, RefreshCw, Save } from 'lucide-react';
+import { User, Lock, Globe, Bell, CheckCircle, Eye, EyeOff, Database, RefreshCw, Save, Trash2, AlertTriangle } from 'lucide-react';
 import { getCurrentUser } from '@/lib/auth';
 import { ThemeToggle } from '@/components/layout/theme-toggle';
 import { api } from '@/lib/api';
@@ -20,6 +20,7 @@ export default function SettingsPage() {
   ];
 
   TABS.push({ key:'backup', label:'Backup & Restore', icon:Database });
+  TABS.push({ key:'data-management', label:'Data Management', icon:Trash2 });
 
   // Show Cloud Sync tab only if running inside desktop app or localhost
   const isDesktop = typeof window !== 'undefined' && ((window as any).electronAPI || window.location.hostname === 'localhost');
@@ -46,6 +47,7 @@ export default function SettingsPage() {
         {tab==='appearance'    && <AppearanceTab/>}
         {tab==='notifications' && <NotificationsTab/>}
         {tab==='backup'        && <BackupTab/>}
+        {tab==='data-management' && <DataManagementTab/>}
         {tab==='sync'          && <SyncTab/>}
       </div>
     </div>
@@ -527,6 +529,174 @@ function SyncTab() {
             </button>
           </div>
         </div>
+      </div>
+    </div>
+  );
+}
+
+function DataManagementTab() {
+  const [loading, setLoading] = useState<string | null>(null);
+  const [success, setSuccess] = useState('');
+  const [error, setError] = useState('');
+  const [confirm, setConfirm] = useState<{ scope: string; label: string } | null>(null);
+  const [confirmText, setConfirmText] = useState('');
+
+  const ACTIONS = [
+    {
+      scope: 'sales',
+      label: 'Delete All Sale History',
+      description: 'Permanently deletes all sales orders, sales invoices, and sale returns.',
+      color: 'text-orange-600 dark:text-orange-400',
+      bg: 'bg-orange-50 dark:bg-orange-950/20 border-orange-200 dark:border-orange-800',
+      btn: 'bg-orange-600 hover:bg-orange-700',
+    },
+    {
+      scope: 'purchases',
+      label: 'Delete All Purchase History',
+      description: 'Permanently deletes all purchase orders, purchase invoices, and purchase returns.',
+      color: 'text-yellow-600 dark:text-yellow-400',
+      bg: 'bg-yellow-50 dark:bg-yellow-950/20 border-yellow-200 dark:border-yellow-800',
+      btn: 'bg-yellow-600 hover:bg-yellow-700',
+    },
+    {
+      scope: 'inventory',
+      label: 'Clear Inventory & Stock',
+      description: 'Removes all stock entries and stock movement logs from all warehouses.',
+      color: 'text-blue-600 dark:text-blue-400',
+      bg: 'bg-blue-50 dark:bg-blue-950/20 border-blue-200 dark:border-blue-800',
+      btn: 'bg-blue-600 hover:bg-blue-700',
+    },
+    {
+      scope: 'products',
+      label: 'Delete All Products & Categories',
+      description: 'Permanently deletes all products, categories, and BOMs.',
+      color: 'text-purple-600 dark:text-purple-400',
+      bg: 'bg-purple-50 dark:bg-purple-950/20 border-purple-200 dark:border-purple-800',
+      btn: 'bg-purple-600 hover:bg-purple-700',
+    },
+    {
+      scope: 'customers',
+      label: 'Delete All Customers',
+      description: 'Permanently deletes all customer records and their ledger accounts.',
+      color: 'text-pink-600 dark:text-pink-400',
+      bg: 'bg-pink-50 dark:bg-pink-950/20 border-pink-200 dark:border-pink-800',
+      btn: 'bg-pink-600 hover:bg-pink-700',
+    },
+    {
+      scope: 'accounting',
+      label: 'Clear Accounting & Expenses',
+      description: 'Deletes all accounting transactions and expense records.',
+      color: 'text-teal-600 dark:text-teal-400',
+      bg: 'bg-teal-50 dark:bg-teal-950/20 border-teal-200 dark:border-teal-800',
+      btn: 'bg-teal-600 hover:bg-teal-700',
+    },
+    {
+      scope: 'all',
+      label: '⚠ Full Database Reset',
+      description: 'DANGER: Deletes ALL operational records — sales, purchases, inventory, products, customers, suppliers, accounting, and sync logs. Roles, branches, and user accounts are kept intact.',
+      color: 'text-red-600 dark:text-red-400',
+      bg: 'bg-red-50 dark:bg-red-950/20 border-red-200 dark:border-red-800',
+      btn: 'bg-red-600 hover:bg-red-700',
+    },
+  ];
+
+  async function handleClear(scope: string) {
+    setLoading(scope); setSuccess(''); setError('');
+    try {
+      const res = await api.post<any>('/sync/clear-data', { scope });
+      if (res.success) {
+        const total = Object.values(res.deleted as Record<string, number>).reduce((a, b) => a + b, 0);
+        setSuccess(`Done! Deleted ${total} records for: ${scope}.`);
+      } else {
+        setError('Operation failed. Please try again.');
+      }
+    } catch (err: any) {
+      setError(err.message || 'Failed to clear data.');
+    } finally {
+      setLoading(null);
+      setConfirm(null);
+      setConfirmText('');
+    }
+  }
+
+  return (
+    <div>
+      <h2 className="text-lg font-semibold mb-1">Data Management</h2>
+      <p className="text-sm text-muted-foreground mb-6">
+        Permanently delete specific categories of data from this branch's local database. These actions cannot be undone.
+      </p>
+
+      {success && (
+        <div className="flex items-center gap-2 rounded-md bg-emerald-50 dark:bg-emerald-950/20 px-4 py-3 text-sm text-emerald-700 dark:text-emerald-400 border border-emerald-200 dark:border-emerald-800 mb-4">
+          <CheckCircle size={16} className="shrink-0"/><span>{success}</span>
+        </div>
+      )}
+      {error && (
+        <div className="flex items-center gap-2 rounded-md bg-red-50 dark:bg-red-950/20 px-4 py-3 text-sm text-red-700 dark:text-red-400 border border-red-200 dark:border-red-800 mb-4">
+          <AlertTriangle size={16} className="shrink-0"/><span>{error}</span>
+        </div>
+      )}
+
+      {/* Confirmation modal */}
+      {confirm && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-sm">
+          <div className="bg-card border border-border rounded-xl shadow-2xl p-6 w-full max-w-md mx-4">
+            <div className="flex items-center gap-3 mb-3">
+              <div className="h-10 w-10 rounded-full bg-red-100 dark:bg-red-950 flex items-center justify-center">
+                <AlertTriangle size={20} className="text-red-600"/>
+              </div>
+              <div>
+                <h3 className="font-semibold text-base">Confirm Deletion</h3>
+                <p className="text-xs text-muted-foreground">This action is permanent and cannot be undone.</p>
+              </div>
+            </div>
+            <p className="text-sm text-foreground mb-4">
+              You are about to permanently delete: <strong>{confirm.label}</strong>.
+              Type <code className="bg-muted px-1 rounded text-xs font-mono">DELETE</code> below to confirm.
+            </p>
+            <input
+              type="text"
+              placeholder="Type DELETE to confirm"
+              value={confirmText}
+              onChange={e => setConfirmText(e.target.value)}
+              className="w-full rounded-md border border-border bg-background px-3 py-2 text-sm mb-4 focus:outline-none focus:ring-2 focus:ring-red-500"
+            />
+            <div className="flex gap-3">
+              <button
+                onClick={() => { setConfirm(null); setConfirmText(''); }}
+                className="flex-1 rounded-md border border-border px-4 py-2 text-sm hover:bg-muted transition-colors"
+              >
+                Cancel
+              </button>
+              <button
+                disabled={confirmText !== 'DELETE' || !!loading}
+                onClick={() => handleClear(confirm.scope)}
+                className="flex-1 rounded-md bg-red-600 hover:bg-red-700 disabled:opacity-40 disabled:cursor-not-allowed text-white px-4 py-2 text-sm font-medium transition-colors"
+              >
+                {loading === confirm.scope ? 'Deleting...' : 'Yes, Delete'}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      <div className="flex flex-col gap-3">
+        {ACTIONS.map(action => (
+          <div key={action.scope} className={`flex items-start justify-between gap-4 rounded-lg border p-4 ${action.bg}`}>
+            <div className="flex-1">
+              <p className={`text-sm font-semibold ${action.color}`}>{action.label}</p>
+              <p className="text-xs text-muted-foreground mt-0.5">{action.description}</p>
+            </div>
+            <button
+              onClick={() => { setSuccess(''); setError(''); setConfirm({ scope: action.scope, label: action.label }); }}
+              disabled={!!loading}
+              className={`shrink-0 flex items-center gap-2 rounded-md ${action.btn} text-white px-3 py-1.5 text-xs font-medium transition-colors disabled:opacity-40 disabled:cursor-not-allowed`}
+            >
+              <Trash2 size={13}/>
+              {loading === action.scope ? 'Deleting...' : 'Delete'}
+            </button>
+          </div>
+        ))}
       </div>
     </div>
   );

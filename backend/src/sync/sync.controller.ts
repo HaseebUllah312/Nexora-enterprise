@@ -123,4 +123,63 @@ export class SyncController {
       throw new InternalServerErrorException(err.message || 'Failed to update config');
     }
   }
+
+  @Post('clear-data')
+  async clearData(@Body() body: { scope: string }) {
+    const { scope } = body;
+    const prisma = this.prisma as any;
+
+    try {
+      let deleted: Record<string, number> = {};
+
+      if (scope === 'sales' || scope === 'all') {
+        deleted['saleReturn']      = (await prisma.saleReturn.deleteMany()).count;
+        deleted['salesInvoice']    = (await prisma.salesInvoice.deleteMany()).count;
+        deleted['salesOrderItem']  = (await prisma.salesOrderItem.deleteMany()).count;
+        deleted['salesOrder']      = (await prisma.salesOrder.deleteMany()).count;
+      }
+
+      if (scope === 'purchases' || scope === 'all') {
+        deleted['purchaseReturn']     = (await prisma.purchaseReturn.deleteMany()).count;
+        deleted['purchaseInvoice']    = (await prisma.purchaseInvoice.deleteMany()).count;
+        deleted['purchaseOrderItem']  = (await prisma.purchaseOrderItem.deleteMany()).count;
+        deleted['purchaseOrder']      = (await prisma.purchaseOrder.deleteMany()).count;
+      }
+
+      if (scope === 'inventory' || scope === 'all') {
+        deleted['stockMovement'] = (await prisma.stockMovement.deleteMany()).count;
+        deleted['stockTransfer'] = (await prisma.stockTransfer.deleteMany()).count;
+        deleted['stock']         = (await prisma.stock.deleteMany()).count;
+      }
+
+      if (scope === 'products' || scope === 'all') {
+        deleted['bomComponent']    = (await prisma.bomComponent.deleteMany()).count;
+        deleted['bom']             = (await prisma.bom.deleteMany()).count;
+        deleted['productionOrder'] = (await prisma.productionOrder.deleteMany()).count;
+        deleted['product']         = (await prisma.product.deleteMany()).count;
+        deleted['category']        = (await prisma.category.deleteMany()).count;
+      }
+
+      if (scope === 'customers' || scope === 'all') {
+        deleted['customer'] = (await prisma.customer.deleteMany()).count;
+      }
+
+      if (scope === 'suppliers' || scope === 'all') {
+        deleted['supplier'] = (await prisma.supplier.deleteMany()).count;
+      }
+
+      if (scope === 'accounting' || scope === 'all') {
+        deleted['transaction'] = (await prisma.transaction.deleteMany()).count;
+        deleted['expense']     = (await prisma.expense.deleteMany()).count;
+      }
+
+      if (scope === 'all') {
+        deleted['syncLog'] = (await prisma.syncLog.deleteMany()).count;
+      }
+
+      return { success: true, scope, deleted };
+    } catch (err: any) {
+      throw new InternalServerErrorException(err.message || 'Failed to clear data');
+    }
+  }
 }
