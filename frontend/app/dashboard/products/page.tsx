@@ -1,6 +1,7 @@
 'use client';
 import { useEffect, useState, useCallback } from 'react';
-import { Plus, Search, Pencil, AlertTriangle, Package, BookOpen } from 'lucide-react';
+import { Plus, Search, Pencil, AlertTriangle, Package, BookOpen, FileSpreadsheet } from 'lucide-react';
+import * as XLSX from 'xlsx';
 import { useRouter } from 'next/navigation';
 import { api } from '@/lib/api';
 import { DataTableShell } from '@/components/ui/data-table-shell';
@@ -29,6 +30,84 @@ export default function ProductsPage() {
   const [showForm, setShowForm] = useState(false);
   const [editing,  setEditing]  = useState<Product|null>(null);
   const [lowStock, setLowStock] = useState<Product[]>([]);
+  const [importing, setImporting] = useState(false);
+
+  const handleImportExcel = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+
+    setImporting(true);
+    const reader = new FileReader();
+    reader.onload = async (evt) => {
+      try {
+        const bstr = evt.target?.result;
+        const wb = XLSX.read(bstr, { type: 'binary' });
+        const wsname = wb.SheetNames[0];
+        const ws = wb.Sheets[wsname];
+        const data = XLSX.utils.sheet_to_json(ws, { header: 1 }) as any[][];
+
+        if (data.length <= 1) {
+          alert('Spreadsheet is empty or has no data.');
+          setImporting(false);
+          return;
+        }
+
+        const headers = data[0].map(h => String(h || '').trim());
+        const rows = data.slice(1);
+
+        const mappedProducts = rows.map(row => {
+          const getVal = (colName: string) => {
+            const index = headers.findIndex(h => h.toLowerCase().includes(colName.toLowerCase()));
+            return index !== -1 ? row[index] : undefined;
+          };
+
+          const type = String(getVal('type') || 'Product').trim();
+          const categoryName = String(getVal('group') || getVal('category') || '').trim();
+          const brand = getVal('brand') ? String(getVal('brand')).trim() : null;
+          const productCode = String(getVal('item code') || getVal('code') || '').trim();
+          const name = String(getVal('product name') || getVal('name') || '').trim();
+          const unit = String(getVal('unit') || 'PCS').trim();
+          const openingStock = Number(getVal('opening stock') || 0);
+          const purchasePrice = Number(getVal('purchase price') || getVal('purchase') || 0);
+          const salePrice = Number(getVal('sale price') || getVal('sale') || 0);
+
+          return {
+            categoryName,
+            brand,
+            productCode,
+            sku: productCode,
+            name,
+            unit,
+            openingStock,
+            purchasePrice,
+            salePrice
+          };
+        }).filter(p => p.name && p.productCode);
+
+        if (mappedProducts.length === 0) {
+          alert('No valid products found to import. Please check column headers (e.g. Product Name, Item Code, Sale Price, Group).');
+          setImporting(false);
+          return;
+        }
+
+        if (confirm(`Are you sure you want to import ${mappedProducts.length} products?`)) {
+          const res = await api.post<{ success: boolean; count: number }>('/products/import', { products: mappedProducts });
+          if (res.success) {
+            alert(`Successfully imported/updated ${res.count} products!`);
+            load();
+          } else {
+            alert('Import failed.');
+          }
+        }
+      } catch (err: any) {
+        alert(err.message || 'Error parsing Excel file.');
+      } finally {
+        setImporting(false);
+        e.target.value = '';
+      }
+    };
+    reader.readAsBinaryString(file);
+  };
 
   const load = useCallback(async () => {
     setLoading(true); setError(null);
@@ -88,6 +167,21 @@ export default function ProductsPage() {
               <option value="false">Finished Products</option>
               <option value="true">Raw Materials</option>
             </select>
+            <input
+              type="file"
+              id="excel-import-file"
+              accept=".xlsx, .xls, .csv"
+              onChange={handleImportExcel}
+              className="hidden"
+            />
+            <button
+              onClick={() => document.getElementById('excel-import-file')?.click()}
+              disabled={importing}
+              className="flex items-center gap-2 rounded-md border border-border bg-background hover:bg-muted px-4 py-2 text-sm font-semibold text-foreground shadow-sm transition-colors disabled:opacity-50"
+            >
+              <FileSpreadsheet size={16}/>
+              {importing ? 'Importing...' : 'Import Excel'}
+            </button>
             <button onClick={()=>{ setEditing(null); setShowForm(true); }}
               className="flex items-center gap-2 rounded-md bg-primary px-4 py-2 text-sm font-semibold text-primary-foreground hover:opacity-90 shadow-sm">
               <Plus size={16}/>Add Product

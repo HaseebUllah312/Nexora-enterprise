@@ -175,6 +175,16 @@ export class SyncController {
 
       if (scope === 'all') {
         deleted['syncLog'] = (await prisma.syncLog.deleteMany()).count;
+        
+        try {
+          const dir = process.env.USER_DATA_PATH || process.cwd();
+          const syncStateFile = path.join(dir, 'sync-state.json');
+          if (fs.existsSync(syncStateFile)) {
+            fs.unlinkSync(syncStateFile);
+          }
+        } catch (e) {
+          console.error('Failed to clear sync state file:', e);
+        }
       }
 
       return { success: true, scope, deleted };

@@ -17,6 +17,12 @@ export class ProductsController {
     return this.productsService.create(dto);
   }
 
+  @Post('import')
+  @Roles('SUPER_ADMIN', 'OWNER')
+  importProducts(@Body() body: { products: any[] }) {
+    return this.productsService.importProducts(body.products);
+  }
+
   @Get()
   findAll(@Query() query: QueryProductDto) {
     return this.productsService.findAll(query);

@@ -1102,6 +1102,94 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ pat
       return corsResponse(challan);
     }
 
+    // ─── PRODUCTS BULK EXCEL IMPORT ─────────────────────────────────────────
+    if (route === 'products/import') {
+      const results: any[] = [];
+      const firstWarehouse = await prisma.warehouse.findFirst();
+
+      const items = Array.isArray(body.products) ? body.products : [];
+      for (const item of items) {
+        let categoryId: string | null = null;
+        if (item.categoryName) {
+          let cat = await prisma.category.findFirst({
+            where: { name: item.categoryName }
+          });
+          if (!cat) {
+            cat = await prisma.category.create({
+              data: { name: item.categoryName }
+            });
+          }
+          categoryId = cat.id;
+        }
+
+        const productCode = String(item.productCode || '').trim();
+        const sku = String(item.sku || productCode || '').trim();
+        const name = String(item.name || '').trim();
+        const unit = String(item.unit || 'PCS').trim();
+        const purchasePrice = Number(item.purchasePrice || 0);
+        const salePrice = Number(item.salePrice || 0);
+        const openingStock = Number(item.openingStock || 0);
+        const brand = item.brand ? String(item.brand).trim() : null;
+
+        if (!productCode || !name) continue;
+
+        const existingProduct = await prisma.product.findFirst({
+          where: { OR: [{ productCode }, { sku }] }
+        });
+
+        if (existingProduct) {
+          const updated = await prisma.product.update({
+            where: { id: existingProduct.id },
+            data: {
+              name,
+              purchasePrice,
+              salePrice,
+              brand,
+              categoryId
+            }
+          });
+          results.push({ ...updated, status: 'updated' });
+        } else {
+          const newProduct = await prisma.product.create({
+            data: {
+              sku,
+              productCode,
+              name,
+              unit,
+              purchasePrice,
+              salePrice,
+              openingStock,
+              brand,
+              categoryId
+            }
+          });
+
+          if (openingStock > 0 && firstWarehouse) {
+            await prisma.stock.create({
+              data: {
+                productId: newProduct.id,
+                warehouseId: firstWarehouse.id,
+                branchId: firstWarehouse.branchId,
+                quantity: openingStock,
+                batchNumber: ''
+              }
+            });
+
+            await prisma.stockMovement.create({
+              data: {
+                productId: newProduct.id,
+                quantity: openingStock,
+                type: 'STOCK_IN',
+                notes: 'Opening stock from Excel import'
+              }
+            });
+          }
+          results.push({ ...newProduct, status: 'created' });
+        }
+      }
+      return corsResponse({ success: true, count: results.length, data: results });
+    }
+
     // ─── PRODUCTS & CUSTOMERS MODULE ────────────────────────────────────────
     if (route === 'products') {
       const count = await prisma.product.count();

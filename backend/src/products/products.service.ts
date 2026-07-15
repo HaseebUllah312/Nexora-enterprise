@@ -110,5 +110,98 @@ export class ProductsService {
 
     return { product, currentStock, byWarehouse: product.stock, ledger: ledger.reverse() };
   }
+
+  async importProducts(dtoList: any[]) {
+    const results: any[] = [];
+    const firstWarehouse = await this.prisma.warehouse.findFirst();
+
+    for (const item of dtoList) {
+      // 1. Resolve or create category if name is provided
+      let categoryId: string | null = null;
+      if (item.categoryName) {
+        let cat = await this.prisma.category.findFirst({
+          where: { name: item.categoryName }
+        });
+        if (!cat) {
+          cat = await this.prisma.category.create({
+            data: { name: item.categoryName }
+          });
+        }
+        categoryId = cat.id;
+      }
+
+      // 2. Format product fields
+      const productCode = String(item.productCode || '').trim();
+      const sku = String(item.sku || productCode || '').trim();
+      const name = String(item.name || '').trim();
+      const unit = String(item.unit || 'PCS').trim();
+      const purchasePrice = Number(item.purchasePrice || 0);
+      const salePrice = Number(item.salePrice || 0);
+      const openingStock = Number(item.openingStock || 0);
+      const brand = item.brand ? String(item.brand).trim() : null;
+
+      // 3. Skip if code or name is missing
+      if (!productCode || !name) continue;
+
+      // 4. Find if product already exists
+      const existingProduct = await this.prisma.product.findFirst({
+        where: { OR: [{ productCode }, { sku }] }
+      });
+
+      if (existingProduct) {
+        // Update price, name, brand
+        const updated = await this.prisma.product.update({
+          where: { id: existingProduct.id },
+          data: {
+            name,
+            purchasePrice,
+            salePrice,
+            brand,
+            categoryId
+          }
+        });
+        results.push({ ...updated, status: 'updated' });
+      } else {
+        // Create new product
+        const newProduct = await this.prisma.product.create({
+          data: {
+            sku,
+            productCode,
+            name,
+            unit,
+            purchasePrice,
+            salePrice,
+            openingStock,
+            brand,
+            categoryId
+          }
+        });
+
+        // 5. Create initial stock record if opening stock > 0
+        if (openingStock > 0 && firstWarehouse) {
+          await this.prisma.stock.create({
+            data: {
+              productId: newProduct.id,
+              warehouseId: firstWarehouse.id,
+              branchId: firstWarehouse.branchId,
+              quantity: openingStock,
+              batchNumber: ''
+            }
+          });
+          
+          await this.prisma.stockMovement.create({
+            data: {
+              productId: newProduct.id,
+              quantity: openingStock,
+              type: 'STOCK_IN',
+              notes: 'Opening stock from Excel import'
+            }
+          });
+        }
+        results.push({ ...newProduct, status: 'created' });
+      }
+    }
+    return { success: true, count: results.length, data: results };
+  }
 }
 
