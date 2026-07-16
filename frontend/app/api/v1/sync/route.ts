@@ -176,11 +176,31 @@ export async function POST(req: NextRequest) {
             await (prisma as any)[camelCaseModel].delete({
               where: { id: log.recordId },
             });
+            // Write delete sync log to cloud
+            await prisma.syncLog.create({
+              data: {
+                modelName: log.modelName,
+                recordId: log.recordId,
+                action: 'DELETE',
+              }
+            });
           } catch (e) {
             // Ignore if already deleted
           }
         }
       }
+
+      // Log all incoming mutations to the cloud's SyncLog so other clients can pull them
+      const cloudLogsToCreate = sortedLogs.map(log => 
+        prisma.syncLog.create({
+          data: {
+            modelName: log.modelName,
+            recordId: log.recordId,
+            action: log.action,
+          }
+        })
+      );
+      operations.push(...cloudLogsToCreate);
 
       // Execute all upserts and nested item operations in a single atomic transaction
       if (operations.length > 0) {
@@ -198,12 +218,89 @@ export async function POST(req: NextRequest) {
 
     if (lastPulledAt) {
       const lastPulled = new Date(lastPulledAt);
-      const newCloudLogs = await prisma.syncLog.findMany({
-        where: {
-          createdAt: { gt: lastPulled },
-        },
-        orderBy: { createdAt: 'asc' },
-      });
+      const isInitialPull = lastPulled.getFullYear() < 2024;
+
+      if (isInitialPull) {
+        await logDebug(`[Vercel Sync] Initial pull detected (lastPulledAt: ${lastPulledAt}). Sending bootstrap dataset...`);
+        
+        // 1. Roles
+        const roles = await prisma.role.findMany();
+        for (const r of roles) cloudChanges.push({ modelName: 'Role', recordId: r.id, action: 'CREATE', data: r });
+
+        // 2. Branches
+        const branches = await prisma.branch.findMany();
+        for (const b of branches) cloudChanges.push({ modelName: 'Branch', recordId: b.id, action: 'CREATE', data: b });
+
+        // 3. Warehouses
+        const warehouses = await prisma.warehouse.findMany();
+        for (const w of warehouses) cloudChanges.push({ modelName: 'Warehouse', recordId: w.id, action: 'CREATE', data: w });
+
+        // 4. Users
+        const users = await prisma.user.findMany();
+        for (const u of users) cloudChanges.push({ modelName: 'User', recordId: u.id, action: 'CREATE', data: u });
+
+        // 5. Categories
+        const categories = await prisma.category.findMany();
+        for (const c of categories) cloudChanges.push({ modelName: 'Category', recordId: c.id, action: 'CREATE', data: c });
+
+        // 6. Products
+        const products = await prisma.product.findMany();
+        for (const p of products) cloudChanges.push({ modelName: 'Product', recordId: p.id, action: 'CREATE', data: p });
+
+        // 7. Customers
+        const customers = await prisma.customer.findMany();
+        for (const c of customers) cloudChanges.push({ modelName: 'Customer', recordId: c.id, action: 'CREATE', data: c });
+
+        // 8. Suppliers
+        const suppliers = await prisma.supplier.findMany();
+        for (const s of suppliers) cloudChanges.push({ modelName: 'Supplier', recordId: s.id, action: 'CREATE', data: s });
+
+        // 9. SalesOrders (with items)
+        const salesOrders = await prisma.salesOrder.findMany({ include: { items: true } });
+        for (const s of salesOrders) cloudChanges.push({ modelName: 'SalesOrder', recordId: s.id, action: 'CREATE', data: s });
+
+        // 10. PurchaseOrders (with items)
+        const purchaseOrders = await prisma.purchaseOrder.findMany({ include: { items: true } });
+        for (const p of purchaseOrders) cloudChanges.push({ modelName: 'PurchaseOrder', recordId: p.id, action: 'CREATE', data: p });
+
+        // 11. Boms (with components)
+        const boms = await prisma.bom.findMany({ include: { components: true } });
+        for (const b of boms) cloudChanges.push({ modelName: 'Bom', recordId: b.id, action: 'CREATE', data: b });
+
+        // 12. Stock
+        const stocks = await prisma.stock.findMany();
+        for (const s of stocks) cloudChanges.push({ modelName: 'Stock', recordId: s.id, action: 'CREATE', data: s });
+
+        // 13. StockMovement
+        const movements = await prisma.stockMovement.findMany();
+        for (const m of movements) cloudChanges.push({ modelName: 'StockMovement', recordId: m.id, action: 'CREATE', data: m });
+
+        // 14. CompanySettings
+        const settings = await prisma.companySettings.findMany();
+        for (const s of settings) cloudChanges.push({ modelName: 'CompanySettings', recordId: s.branchId, action: 'CREATE', data: s });
+
+        // 15. Accounts
+        const accounts = await prisma.account.findMany();
+        for (const a of accounts) cloudChanges.push({ modelName: 'Account', recordId: a.id, action: 'CREATE', data: a });
+
+        // 16. Employees
+        const employees = await prisma.employee.findMany();
+        for (const e of employees) cloudChanges.push({ modelName: 'Employee', recordId: e.id, action: 'CREATE', data: e });
+
+        // 17. Vehicles
+        const vehicles = await prisma.vehicle.findMany();
+        for (const v of vehicles) cloudChanges.push({ modelName: 'Vehicle', recordId: v.id, action: 'CREATE', data: v });
+
+        // 18. Expenses
+        const expenses = await prisma.expense.findMany();
+        for (const ex of expenses) cloudChanges.push({ modelName: 'Expense', recordId: ex.id, action: 'CREATE', data: ex });
+      } else {
+        const newCloudLogs = await prisma.syncLog.findMany({
+          where: {
+            createdAt: { gt: lastPulled },
+          },
+          orderBy: { createdAt: 'asc' },
+        });
 
       if (newCloudLogs.length > 0) {
         // Group log entries by modelName to batch fetch records
@@ -268,8 +365,9 @@ export async function POST(req: NextRequest) {
         }
       }
     }
+  }
 
-    return NextResponse.json({
+  return NextResponse.json({
       success: true,
       processedCount: Array.isArray(logs) ? logs.length : 0,
       changes: cloudChanges,
