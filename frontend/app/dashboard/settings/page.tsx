@@ -368,6 +368,7 @@ function SyncTab() {
     syncedCount: 0,
     syncTargetUrl: '',
     supabaseDbUrl: '',
+    lastError: null as string | null,
   });
 
   const [form, setForm] = useState({
@@ -428,6 +429,23 @@ function SyncTab() {
       setError(err.message || 'Sync failed. Ensure branch is online and credentials are correct.');
     } finally {
       setSyncing(false);
+      fetchStatus();
+    }
+  }
+
+  async function handleClearQueue() {
+    if (!confirm('This will mark all pending sync entries as done without pushing them to cloud. Use this to clear stuck seed data. Continue?')) return;
+    setSyncing(true); setSuccess(''); setError('');
+    try {
+      const res = await api.post<any>('/sync/clear-queue', {});
+      if (res.success) {
+        setSuccess(`Cleared ${res.cleared} stuck pending sync entries. Your local data is safe — entries were only from initialization.`);
+        fetchStatus();
+      }
+    } catch (err: any) {
+      setError(err.message || 'Failed to clear sync queue.');
+    } finally {
+      setSyncing(false);
     }
   }
 
@@ -486,6 +504,21 @@ function SyncTab() {
             <RefreshCw size={15} className={syncing ? 'animate-spin' : ''}/>
             {syncing ? 'Synchronizing...' : 'Sync Now'}
           </button>
+          {status.unsyncedCount > 0 && (
+            <button
+              onClick={handleClearQueue}
+              disabled={syncing}
+              className="mt-3 flex items-center justify-center gap-2 rounded-md border border-red-300 dark:border-red-700 bg-red-50 dark:bg-red-950/30 px-4 py-2.5 text-sm font-semibold text-red-700 dark:text-red-400 hover:bg-red-100 dark:hover:bg-red-950/50 disabled:opacity-50 transition-colors"
+            >
+              🗑️ Clear Stuck Queue ({status.unsyncedCount} pending)
+            </button>
+          )}
+          {status.lastError && (
+            <div className="mt-3 rounded-md border border-red-200 dark:border-red-800 bg-red-50 dark:bg-red-950/20 p-3">
+              <p className="text-xs font-semibold text-red-700 dark:text-red-400 mb-1">⚠ Last Sync Error:</p>
+              <p className="text-xs text-red-600 dark:text-red-400 break-all font-mono">{status.lastError}</p>
+            </div>
+          )}
         </div>
 
         {/* Settings Form */}

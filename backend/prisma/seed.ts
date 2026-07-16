@@ -6,6 +6,10 @@ const prisma = new PrismaClient();
 async function hash(pw: string) { return bcrypt.hash(pw, 12); }
 
 async function main() {
+  // Prevent seed operations from being logged to sync queue.
+  // Seed data is initialization, not user data — it must never be pushed to the cloud.
+  (global as any).isSyncingRemote = true;
+
   console.log('━━━ Seeding FactoryERP Pro ━━━\n');
 
   // ── 1. ROLES ──────────────────────────────────────────────────────────────

@@ -7,8 +7,13 @@ import * as path from 'path';
 export class SyncService implements OnModuleInit, OnModuleDestroy {
   private syncInterval: NodeJS.Timeout | null = null;
   private isSyncing = false;
+  private lastSyncError: string | null = null;
 
   constructor(private prisma: PrismaService) {}
+
+  getLastError(): string | null {
+    return this.lastSyncError;
+  }
 
   onModuleInit() {
     const syncTarget = process.env.SYNC_TARGET_URL;
@@ -225,8 +230,10 @@ export class SyncService implements OnModuleInit, OnModuleDestroy {
         this.saveLastPulledAt(result.timestamp);
       }
 
+      this.lastSyncError = null; // Clear error on success
     } catch (err: any) {
       console.error('[Sync Service] Error during synchronization:', err.message || err);
+      this.lastSyncError = err.message || String(err); // Capture error on failure
     } finally {
       this.isSyncing = false;
     }

@@ -28,6 +28,7 @@ export class SyncController {
         syncedCount,
         syncTargetUrl: process.env.SYNC_TARGET_URL || '',
         supabaseDbUrl: process.env.SUPABASE_DATABASE_URL || '',
+        lastError: this.syncService.getLastError(),
       };
     } catch (err: any) {
       throw new InternalServerErrorException(err.message || 'Failed to get sync status');
@@ -49,6 +50,19 @@ export class SyncController {
       return { success: true, unsyncedCount };
     } catch (err: any) {
       throw new InternalServerErrorException(err.message || 'Sync failed');
+    }
+  }
+
+  @Post('clear-queue')
+  async clearQueue() {
+    try {
+      const result = await (this.prisma as any).syncLog.updateMany({
+        where: { synced: false },
+        data: { synced: true },
+      });
+      return { success: true, cleared: result.count };
+    } catch (err: any) {
+      throw new InternalServerErrorException(err.message || 'Failed to clear sync queue');
     }
   }
 
@@ -87,7 +101,7 @@ export class SyncController {
       const updates = {
         SYNC_TARGET_URL: (body.syncTargetUrl || '').trim(),
         SYNC_SECRET: (body.syncSecret || '').trim(),
-        DATABASE_URL: (body.supabaseDbUrl || '').trim(),
+        SUPABASE_DATABASE_URL: (body.supabaseDbUrl || '').trim(),
       };
 
       let lines = content.split('\n');
@@ -116,7 +130,7 @@ export class SyncController {
       // Also update current process.env variables so it takes effect instantly
       process.env.SYNC_TARGET_URL = updates.SYNC_TARGET_URL;
       process.env.SYNC_SECRET = updates.SYNC_SECRET;
-      process.env.SUPABASE_DATABASE_URL = updates.DATABASE_URL;
+      process.env.SUPABASE_DATABASE_URL = updates.SUPABASE_DATABASE_URL;
 
       return { success: true, message: 'Settings saved. Please restart the app for full effect.' };
     } catch (err: any) {
