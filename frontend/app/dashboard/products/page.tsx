@@ -91,9 +91,16 @@ export default function ProductsPage() {
         }
 
         if (confirm(`Are you sure you want to import ${mappedProducts.length} products?`)) {
-          const res = await api.post<{ success: boolean; count: number }>('/products/import', { products: mappedProducts });
+          const res = await api.post<{ success: boolean; count: number; errorCount?: number; errors?: any[] }>('/products/import', { products: mappedProducts });
           if (res.success) {
-            alert(`Successfully imported/updated ${res.count} products!`);
+            let msg = `Successfully imported/updated ${res.count} products!`;
+            if (res.errorCount && res.errorCount > 0) {
+              msg += `\n\n⚠️ ${res.errorCount} rows failed (e.g. duplicate codes or missing fields).`;
+              if (res.errors && res.errors.length > 0) {
+                msg += '\n\nFirst failed rows:\n' + res.errors.slice(0, 5).map((e: any) => `Row ${e.row}: ${e.reason}`).join('\n');
+              }
+            }
+            alert(msg);
             load();
           } else {
             alert('Import failed.');

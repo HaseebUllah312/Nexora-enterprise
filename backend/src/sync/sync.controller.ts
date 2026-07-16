@@ -66,6 +66,19 @@ export class SyncController {
     }
   }
 
+  @Post('reset-pointer')
+  async resetPointer() {
+    try {
+      const p = this.syncService.getSyncStatePath();
+      if (fs.existsSync(p)) {
+        fs.unlinkSync(p);
+      }
+      return { success: true, message: 'Sync pointer reset successfully.' };
+    } catch (err: any) {
+      throw new InternalServerErrorException(err.message || 'Failed to reset sync pointer');
+    }
+  }
+
   @Post('config')
   async updateConfig(@Body() body: { syncTargetUrl: string; syncSecret: string; supabaseDbUrl: string }) {
     try {

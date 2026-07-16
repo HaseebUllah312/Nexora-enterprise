@@ -449,6 +449,28 @@ function SyncTab() {
     }
   }
 
+  async function handleResetPointer() {
+    if (!confirm('This will reset your sync history pointer. The app will immediately pull all categories, products, stock levels, and settings from the cloud database to this laptop. Offline changes not yet synced might be overwritten. Continue?')) return;
+    setSyncing(true); setSuccess(''); setError('');
+    try {
+      const res = await api.post<any>('/sync/reset-pointer', {});
+      if (res.success) {
+        setSuccess('Sync pointer reset! Pulling all cloud data...');
+        const syncRes = await api.post<any>('/sync/trigger');
+        if (syncRes.success) {
+          setSuccess('Successfully pulled all cloud products and data to this laptop!');
+        } else {
+          setError(syncRes.message || 'Sync reset succeeded, but initial pull failed.');
+        }
+      }
+    } catch (err: any) {
+      setError(err.message || 'Failed to force pull data.');
+    } finally {
+      setSyncing(false);
+      fetchStatus();
+    }
+  }
+
   return (
     <div>
       <h2 className="text-lg font-semibold mb-2">Cloud Database Synchronization</h2>
@@ -496,14 +518,23 @@ function SyncTab() {
           <p className="text-xs text-muted-foreground mb-4">
             Manually trigger the sync service to upload any offline modifications (sales, purchases, stocks) to your central Supabase database.
           </p>
-          <button
-            onClick={handleTriggerSync}
-            disabled={syncing || !status.enabled}
-            className="flex items-center justify-center gap-2 rounded-md bg-primary px-4 py-2.5 text-sm font-semibold text-primary-foreground shadow hover:bg-primary/90 disabled:opacity-50 transition-colors"
-          >
-            <RefreshCw size={15} className={syncing ? 'animate-spin' : ''}/>
-            {syncing ? 'Synchronizing...' : 'Sync Now'}
-          </button>
+          <div className="flex flex-wrap gap-3">
+            <button
+              onClick={handleTriggerSync}
+              disabled={syncing || !status.enabled}
+              className="flex items-center justify-center gap-2 rounded-md bg-primary px-4 py-2.5 text-sm font-semibold text-primary-foreground shadow hover:bg-primary/90 disabled:opacity-50 transition-colors"
+            >
+              <RefreshCw size={15} className={syncing ? 'animate-spin' : ''}/>
+              {syncing ? 'Synchronizing...' : 'Sync Now'}
+            </button>
+            <button
+              onClick={handleResetPointer}
+              disabled={syncing || !status.enabled}
+              className="flex items-center justify-center gap-2 rounded-md border border-primary text-primary bg-background px-4 py-2.5 text-sm font-semibold shadow hover:bg-muted disabled:opacity-50 transition-colors"
+            >
+              🔄 Force Pull All Cloud Data
+            </button>
+          </div>
           {status.unsyncedCount > 0 && (
             <button
               onClick={handleClearQueue}

@@ -36,7 +36,7 @@ export class SyncService implements OnModuleInit, OnModuleDestroy {
     }
   }
 
-  private getSyncStatePath(): string {
+  getSyncStatePath(): string {
     const dir = process.env.USER_DATA_PATH || process.cwd();
     return path.join(dir, 'sync-state.json');
   }
