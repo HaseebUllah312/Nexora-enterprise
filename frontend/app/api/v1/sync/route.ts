@@ -6,7 +6,33 @@ export const preferredRegion = 'sin1';
 
 const globalForSync = global as unknown as { syncPrisma: PrismaClient | undefined };
 
-let prisma: PrismaClient | undefined;
+const getPrisma = () => {
+  if (globalForSync.syncPrisma) return globalForSync.syncPrisma;
+
+  if (!process.env.DATABASE_URL) {
+    return undefined;
+  }
+
+  const databaseUrl = process.env.DATABASE_URL;
+  let finalUrl = databaseUrl;
+
+  if (!finalUrl.includes('connection_limit')) {
+    const separator = finalUrl.includes('?') ? '&' : '?';
+    finalUrl = `${finalUrl}${separator}connection_limit=3&pool_timeout=15&statement_cache_size=0`;
+  } else if (!finalUrl.includes('statement_cache_size')) {
+    finalUrl = `${finalUrl}&statement_cache_size=0`;
+  }
+
+  const prisma = new PrismaClient({
+    datasources: {
+      db: {
+        url: finalUrl,
+      },
+    },
+  });
+  globalForSync.syncPrisma = prisma;
+  return prisma;
+};
 
 const lowerFirst = (value: string) => value.charAt(0).toLowerCase() + value.slice(1);
 
@@ -148,35 +174,6 @@ const resolveDependenciesFromRecord = async (
       break;
   }
 };
-
-if (globalForSync.syncPrisma) {
-  prisma = globalForSync.syncPrisma;
-} else if (process.env.DATABASE_URL) {
-  const databaseUrl = process.env.DATABASE_URL;
-  let finalUrl = databaseUrl;
-
-  if (databaseUrl) {
-    if (!finalUrl.includes('connection_limit')) {
-      const separator = finalUrl.includes('?') ? '&' : '?';
-      finalUrl = `${finalUrl}${separator}connection_limit=3&pool_timeout=15&statement_cache_size=0`;
-    } else if (!finalUrl.includes('statement_cache_size')) {
-      finalUrl = `${finalUrl}&statement_cache_size=0`;
-    }
-  }
-
-  if (finalUrl) {
-    console.log('[Prisma Init] Resolved DATABASE_URL: ', finalUrl.replace(/:[^:@]+@/, ':****@'));
-  }
-
-  prisma = new PrismaClient({
-    datasources: {
-      db: {
-        url: finalUrl,
-      },
-    },
-  });
-  globalForSync.syncPrisma = prisma;
-}
 
 export async function OPTIONS() {
   return new NextResponse(null, {
