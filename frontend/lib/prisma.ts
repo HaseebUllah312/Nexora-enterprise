@@ -1,6 +1,6 @@
 import { PrismaClient } from '@prisma/client';
 
-const globalForPrisma = global as unknown as { prisma: PrismaClient };
+const globalForPrisma = global as unknown as { prisma: PrismaClient | undefined };
 
 const createPrismaClient = () => {
   const client = new PrismaClient({
@@ -14,7 +14,7 @@ const createPrismaClient = () => {
       } catch (err) {}
     }).catch(() => {});
   }
-  
+
   // Intercept mutations on the web to log them for offline sync
   client.$use(async (params, next) => {
     const result = await next(params);
@@ -62,6 +62,6 @@ const createPrismaClient = () => {
   return client;
 };
 
-export const prisma = globalForPrisma.prisma || createPrismaClient();
+export const prisma = globalForPrisma.prisma ?? createPrismaClient();
 
 if (process.env.NODE_ENV !== 'production') globalForPrisma.prisma = prisma;

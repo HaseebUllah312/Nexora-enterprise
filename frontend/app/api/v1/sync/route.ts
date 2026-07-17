@@ -4,9 +4,9 @@ import { PrismaClient } from '@prisma/client';
 export const maxDuration = 60;
 export const preferredRegion = 'sin1';
 
-const globalForSync = global as unknown as { syncPrisma: PrismaClient };
+const globalForSync = global as unknown as { syncPrisma: PrismaClient | undefined };
 
-let prisma: PrismaClient;
+let prisma: PrismaClient | undefined;
 
 const lowerFirst = (value: string) => value.charAt(0).toLowerCase() + value.slice(1);
 
@@ -151,15 +151,11 @@ const resolveDependenciesFromRecord = async (
 
 if (globalForSync.syncPrisma) {
   prisma = globalForSync.syncPrisma;
-} else {
+} else if (process.env.DATABASE_URL) {
   const databaseUrl = process.env.DATABASE_URL;
   let finalUrl = databaseUrl;
-  
+
   if (databaseUrl) {
-    // Keep the pooler host as it supports IPv4 (required by Vercel Lambda egress)
-    // We retain pgbouncer=true to disable prepared statement caching and prevent conflicts
-    finalUrl = databaseUrl;
-    
     if (!finalUrl.includes('connection_limit')) {
       const separator = finalUrl.includes('?') ? '&' : '?';
       finalUrl = `${finalUrl}${separator}connection_limit=3&pool_timeout=15&statement_cache_size=0`;
