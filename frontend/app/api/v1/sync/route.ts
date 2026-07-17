@@ -175,6 +175,37 @@ const resolveDependenciesFromRecord = async (
   }
 };
 
+let prisma: PrismaClient;
+
+if (globalForSync.syncPrisma) {
+  prisma = globalForSync.syncPrisma;
+} else if (process.env.DATABASE_URL) {
+  const databaseUrl = process.env.DATABASE_URL;
+  let finalUrl = databaseUrl;
+
+  if (databaseUrl) {
+    if (!finalUrl.includes('connection_limit')) {
+      const separator = finalUrl.includes('?') ? '&' : '?';
+      finalUrl = `${finalUrl}${separator}connection_limit=3&pool_timeout=15&statement_cache_size=0`;
+    } else if (!finalUrl.includes('statement_cache_size')) {
+      finalUrl = `${finalUrl}&statement_cache_size=0`;
+    }
+  }
+
+  if (finalUrl) {
+    console.log('[Prisma Init] Resolved DATABASE_URL: ', finalUrl.replace(/:[^:@]+@/, ':****@'));
+  }
+
+  prisma = new PrismaClient({
+    datasources: {
+      db: {
+        url: finalUrl,
+      },
+    },
+  });
+  globalForSync.syncPrisma = prisma;
+}
+
 export async function OPTIONS() {
   return new NextResponse(null, {
     status: 204,
@@ -199,6 +230,9 @@ export async function POST(req: NextRequest) {
   };
 
   const processedLogIds: string[] = [];
+  (global as any).isSyncingRemote = true;
+
+  let responseObj: NextResponse;
 
   try {
     const body = await req.json();
@@ -524,7 +558,7 @@ export async function POST(req: NextRequest) {
     }
   }
 
-  return NextResponse.json({
+    responseObj = NextResponse.json({
       success: true,
       processedCount: Array.isArray(logs) ? logs.length : 0,
       syncedLogIds: processedLogIds,
@@ -534,6 +568,10 @@ export async function POST(req: NextRequest) {
 
   } catch (err: any) {
     console.error('[Vercel Sync] Error processing sync:', err);
-    return NextResponse.json({ message: err.message || 'Internal Server Error' }, { status: 500 });
+    responseObj = NextResponse.json({ message: err.message || 'Internal Server Error' }, { status: 500 });
+  } finally {
+    (global as any).isSyncingRemote = false;
   }
+
+  return responseObj;
 }
