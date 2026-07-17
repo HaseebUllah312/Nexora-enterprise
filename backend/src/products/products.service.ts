@@ -1,5 +1,4 @@
 import { Injectable, NotFoundException, ConflictException } from '@nestjs/common';
-import { Prisma } from '@prisma/client';
 import { PrismaService } from '../prisma/prisma.service';
 import { CreateProductDto } from './dto/create-product.dto';
 import { UpdateProductDto } from './dto/update-product.dto';
@@ -25,7 +24,7 @@ export class ProductsService {
   }
 
   findAll(query: QueryProductDto) {
-    const where: Prisma.ProductWhereInput = {
+    const where = {
       isActive: true,
       ...(query.categoryId ? { categoryId: query.categoryId } : {}),
       ...(query.isRawMaterial !== undefined ? { isRawMaterial: query.isRawMaterial === 'true' } : {}),

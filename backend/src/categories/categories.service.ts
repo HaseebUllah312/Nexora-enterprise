@@ -21,9 +21,9 @@ export class CategoriesService {
   // Flat list -> tree, for sidebar/category-picker UIs
   async findTree() {
     const all = await this.prisma.category.findMany({ orderBy: { name: 'asc' } });
-    const byId = new Map(all.map((c) => [c.id, { ...c, children: [] as any[] }]));
+    const byId = new Map<string, any>(all.map((c: any) => [c.id, { ...c, children: [] as any[] }]));
     const roots: any[] = [];
-    for (const cat of byId.values()) {
+    for (const cat of Array.from(byId.values()) as any[]) {
       if (cat.parentId && byId.has(cat.parentId)) {
         byId.get(cat.parentId)!.children.push(cat);
       } else {
