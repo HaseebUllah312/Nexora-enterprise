@@ -177,34 +177,6 @@ const resolveDependenciesFromRecord = async (
 
 let prisma: PrismaClient;
 
-if (globalForSync.syncPrisma) {
-  prisma = globalForSync.syncPrisma;
-} else if (process.env.DATABASE_URL) {
-  const databaseUrl = process.env.DATABASE_URL;
-  let finalUrl = databaseUrl;
-
-  if (databaseUrl) {
-    if (!finalUrl.includes('connection_limit')) {
-      const separator = finalUrl.includes('?') ? '&' : '?';
-      finalUrl = `${finalUrl}${separator}connection_limit=3&pool_timeout=15&statement_cache_size=0`;
-    } else if (!finalUrl.includes('statement_cache_size')) {
-      finalUrl = `${finalUrl}&statement_cache_size=0`;
-    }
-  }
-
-  if (finalUrl) {
-    console.log('[Prisma Init] Resolved DATABASE_URL: ', finalUrl.replace(/:[^:@]+@/, ':****@'));
-  }
-
-  prisma = new PrismaClient({
-    datasources: {
-      db: {
-        url: finalUrl,
-      },
-    },
-  });
-  globalForSync.syncPrisma = prisma;
-}
 
 export async function OPTIONS() {
   return new NextResponse(null, {
@@ -224,6 +196,12 @@ export async function POST(req: NextRequest) {
   if (!syncSecret || headerSecret !== syncSecret) {
     return NextResponse.json({ message: 'Unauthorized' }, { status: 401 });
   }
+
+  const resolvedPrisma = getPrisma();
+  if (!resolvedPrisma) {
+    return NextResponse.json({ message: 'Database URL not configured' }, { status: 500 });
+  }
+  prisma = resolvedPrisma;
 
   const logDebug = async (msg: string) => {
     console.log(msg);
