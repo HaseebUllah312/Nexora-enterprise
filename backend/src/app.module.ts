@@ -29,6 +29,7 @@ import { ExpensesModule }        from './expenses/expenses.module';
 import { ReturnsModule }         from './returns/returns.module';
 import { JwtAuthGuard }          from './auth/guards/jwt-auth.guard';
 import { SyncModule }            from './sync/sync.module';
+import { HealthModule }          from './health/health.module';
 
 @Module({
   imports: [
@@ -40,7 +41,7 @@ import { SyncModule }            from './sync/sync.module';
     ManufacturingModule, AccountingModule, EmployeesModule, VehiclesModule,
     NotificationsModule, DashboardModule, AiAnalyticsModule, RealtimeModule,
     ReportsModule, CompanySettingsModule, ExpensesModule, ReturnsModule,
-    SyncModule,
+    SyncModule, HealthModule,
   ],
   providers: [
     { provide: APP_GUARD, useClass: JwtAuthGuard },
