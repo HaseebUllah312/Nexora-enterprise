@@ -73,6 +73,9 @@ export class SalesService {
   }
 
   // ── INVOICING ─────────────────────────────────────────────────────────────
+  // NOTE: Quotations (price estimates) can have any items with or without stock.
+  // Stock is only validated when creating an actual invoice (CASH/BANK/CREDIT methods).
+  // If converting a quotation to invoice later, stock must be available at that time.
   async createInvoice(dto: CreateInvoiceDto) {
     const order = await this.findOneOrder(dto.salesOrderId);
     if (order.invoice) throw new BadRequestException('Invoice already exists for this order');
@@ -90,6 +93,28 @@ export class SalesService {
             `Current outstanding: PKR ${outstanding.toLocaleString()}`
           );
         }
+      }
+    }
+
+    // Stock validation: required for actual invoices (not for quotations which are just price estimates)
+    // Quotations allow any items; stock is only validated when invoicing
+    for (const item of order.items) {
+      const branchStock = await this.prisma.stock.aggregate({
+        where: { productId: item.productId, branchId: order.branchId },
+        _sum: { quantity: true },
+      });
+      const availableQty = branchStock._sum.quantity ? Number(branchStock._sum.quantity) : 0;
+      if (availableQty <= 0) {
+        const product = await this.prisma.product.findUnique({ where: { id: item.productId } });
+        throw new BadRequestException(
+          `Cannot invoice: "${product?.name || 'Product'}" has no stock available in this branch.`
+        );
+      }
+      if (availableQty < Number(item.quantity)) {
+        const product = await this.prisma.product.findUnique({ where: { id: item.productId } });
+        throw new BadRequestException(
+          `Insufficient stock for "${product?.name || 'Product'}": need ${item.quantity}, have ${availableQty}`
+        );
       }
     }
 

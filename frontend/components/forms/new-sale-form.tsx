@@ -387,6 +387,7 @@ export function NewSaleForm({ open, onClose, onCreated }: Props) {
                             value={line.productId}
                             onChange={(id,p)=>setLineProduct(i,id,p)}
                             error={!!errors[`l_${i}_p`]}
+                            quotationMode={paymentMethod === 'QUOTATION'}
                           />
                         </td>
                         <td className="px-3 py-2 text-muted-foreground text-xs">{line.unit||'—'}</td>

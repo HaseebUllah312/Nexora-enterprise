@@ -3,7 +3,7 @@ import { useEffect, useRef, useState } from 'react';
 import { Search, X, ChevronDown } from 'lucide-react';
 import { api } from '@/lib/api';
 
-interface Product { id:string; name:string; sku:string; unit:string; salePrice:string; purchasePrice:string; isRawMaterial:boolean; }
+interface Product { id:string; name:string; sku:string; unit:string; salePrice:string; purchasePrice:string; isRawMaterial:boolean; minimumStock?: number; stock?: Array<{quantity: string}>; }
 
 interface Props {
   value: string;
@@ -12,9 +12,10 @@ interface Props {
   error?: boolean;
   rawMaterialsOnly?: boolean;
   finishedOnly?: boolean;
+  quotationMode?: boolean;
 }
 
-export function ProductSearch({ value, onChange, placeholder = 'Search product...', error, rawMaterialsOnly, finishedOnly }: Props) {
+export function ProductSearch({ value, onChange, placeholder = 'Search product...', error, rawMaterialsOnly, finishedOnly, quotationMode }: Props) {
   const [query, setQuery]     = useState('');
   const [results, setResults] = useState<Product[]>([]);
   const [open, setOpen]       = useState(false);
@@ -31,7 +32,8 @@ export function ProductSearch({ value, onChange, placeholder = 'Search product..
         if (rawMaterialsOnly) params.set('isRawMaterial', 'true');
         if (finishedOnly)     params.set('isRawMaterial', 'false');
         const data = await api.get<Product[]>(`/products?${params}`);
-        setResults(data.slice(0, 15));
+        // Show all products (no limit) when initial list, or first 50 if lots of results
+        setResults(data.slice(0, data.length > 100 ? 50 : data.length));
         setOpen(true);
       } catch {}
     };
@@ -58,6 +60,11 @@ export function ProductSearch({ value, onChange, placeholder = 'Search product..
     document.addEventListener('mousedown', handler);
     return () => document.removeEventListener('mousedown', handler);
   }, []);
+
+  function getStockQty(product: Product): number {
+    if (!product.stock || product.stock.length === 0) return 0;
+    return product.stock.reduce((total, s) => total + Number(s.quantity), 0);
+  }
 
   function select(p: Product) {
     setSelected(p); setQuery(''); setOpen(false);
@@ -98,19 +105,32 @@ export function ProductSearch({ value, onChange, placeholder = 'Search product..
 
       {open && results.length > 0 && (
         <div className="absolute z-50 mt-1 w-full rounded-lg border border-border bg-card shadow-xl max-h-64 overflow-y-auto">
-          {results.map(p => (
-            <button key={p.id} onClick={() => select(p)}
-              className="flex w-full items-center justify-between px-4 py-2.5 text-left hover:bg-muted/60 border-b border-border last:border-0">
+          {results.map(p => {
+            const availableQty = getStockQty(p);
+            const isOutOfStock = availableQty === 0;
+            const isDisabled = isOutOfStock && !quotationMode;
+            return (
+            <button key={p.id} 
+              onClick={() => !isDisabled && select(p)}
+              disabled={isDisabled}
+              className={`flex w-full items-center justify-between px-4 py-2.5 text-left border-b border-border last:border-0 ${
+                isDisabled
+                  ? 'bg-red-50 dark:bg-red-900/10 cursor-not-allowed opacity-60' 
+                  : 'hover:bg-muted/60 cursor-pointer'
+              }`}>
               <div className="min-w-0">
                 <p className="text-sm font-medium truncate">{p.name}</p>
                 <p className="text-xs text-muted-foreground">{p.sku}</p>
               </div>
               <div className="text-right ml-2 shrink-0">
                 <p className="text-xs font-medium text-primary">PKR {Number(p.salePrice).toLocaleString()}</p>
-                <p className="text-xs text-muted-foreground">{p.unit}</p>
+                <p className={`text-xs font-semibold ${isOutOfStock ? (quotationMode ? 'text-amber-600' : 'text-red-600') : 'text-emerald-600'}`}>
+                  {p.unit} · {availableQty > 0 ? `${availableQty} available` : (quotationMode ? 'No stock (Quotation OK)' : 'OUT OF STOCK')}
+                </p>
               </div>
             </button>
-          ))}
+          );
+          })}
         </div>
       )}
     </div>

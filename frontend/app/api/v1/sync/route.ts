@@ -8,6 +8,147 @@ const globalForSync = global as unknown as { syncPrisma: PrismaClient };
 
 let prisma: PrismaClient;
 
+const lowerFirst = (value: string) => value.charAt(0).toLowerCase() + value.slice(1);
+
+const getUpsertWhere = (modelName: string, data: any, recordId: string) => {
+  switch (modelName) {
+    case 'Branch':
+      return { code: data?.code || recordId };
+    case 'Role':
+      return { name: data?.name || recordId };
+    case 'User':
+      return { email: data?.email || recordId };
+    default:
+      return { id: recordId };
+  }
+};
+
+const getIncludeForModel = (modelName: string) => {
+  const include: any = {};
+  if (modelName === 'SalesOrder' || modelName === 'PurchaseOrder') {
+    include.items = true;
+  } else if (modelName === 'Bom') {
+    include.components = true;
+  }
+  return Object.keys(include).length > 0 ? include : undefined;
+};
+
+const fetchDependencyRecord = async (prismaClient: PrismaClient, modelName: string, recordId: string) => {
+  const camelCaseModel = lowerFirst(modelName);
+  try {
+    const include = getIncludeForModel(modelName);
+    return await (prismaClient as any)[camelCaseModel].findUnique({
+      where: { id: recordId },
+      ...(include ? { include } : {}),
+    });
+  } catch (e) {
+    console.error(`[Vercel Sync] Failed to fetch dependency ${modelName}(${recordId})`, e);
+    return null;
+  }
+};
+
+const ensureDependency = async (
+  prismaClient: PrismaClient,
+  logsByKey: Map<string, any>,
+  modelName: string,
+  recordId: string,
+) => {
+  const key = `${modelName}:${recordId}`;
+  if (!recordId || logsByKey.has(key)) return;
+
+  const recordData = await fetchDependencyRecord(prismaClient, modelName, recordId);
+  if (!recordData) return;
+
+  const dependencyLog = {
+    logId: '',
+    modelName,
+    recordId,
+    action: 'CREATE',
+    data: recordData,
+  };
+
+  logsByKey.set(key, dependencyLog);
+  await resolveDependenciesFromRecord(prismaClient, recordData, modelName, logsByKey);
+};
+
+const resolveDependenciesFromRecord = async (
+  prismaClient: PrismaClient,
+  record: any,
+  modelName: string,
+  logsByKey: Map<string, any>,
+) => {
+  if (!record || typeof record !== 'object') return;
+
+  const add = async (depModel: string, depId?: string | null) => {
+    if (!depId) return;
+    await ensureDependency(prismaClient, logsByKey, depModel, depId);
+  };
+
+  switch (modelName) {
+    case 'Product':
+      await add('Category', record.categoryId);
+      break;
+    case 'Category':
+      await add('Category', record.parentId);
+      break;
+    case 'SalesOrder':
+      await add('User', record.createdById);
+      await add('Customer', record.customerId);
+      await add('Branch', record.branchId);
+      if (Array.isArray(record.items)) {
+        for (const item of record.items) {
+          await add('Product', item.productId);
+        }
+      }
+      break;
+    case 'PurchaseOrder':
+      await add('User', record.createdById);
+      await add('Supplier', record.supplierId);
+      await add('Branch', record.branchId);
+      if (Array.isArray(record.items)) {
+        for (const item of record.items) {
+          await add('Product', item.productId);
+        }
+      }
+      break;
+    case 'Bom':
+      await add('Product', record.finishedProductId);
+      if (Array.isArray(record.components)) {
+        for (const component of record.components) {
+          await add('Product', component.productId);
+        }
+      }
+      break;
+    case 'ProductionOrder':
+      await add('Bom', record.bomId);
+      await add('Branch', record.branchId);
+      break;
+    case 'Stock':
+      await add('Product', record.productId);
+      await add('Branch', record.branchId);
+      await add('Warehouse', record.warehouseId);
+      break;
+    case 'StockMovement':
+      await add('Product', record.productId);
+      break;
+    case 'SalesInvoice':
+      await add('SalesOrder', record.salesOrderId);
+      break;
+    case 'PurchaseInvoice':
+      await add('PurchaseOrder', record.purchaseOrderId);
+      break;
+    default:
+      await add('Product', record.productId);
+      await add('Category', record.categoryId);
+      await add('Branch', record.branchId);
+      await add('User', record.createdById);
+      await add('Customer', record.customerId);
+      await add('Supplier', record.supplierId);
+      await add('Warehouse', record.warehouseId);
+      break;
+  }
+};
+
 if (globalForSync.syncPrisma) {
   prisma = globalForSync.syncPrisma;
 } else {
@@ -64,6 +205,8 @@ export async function POST(req: NextRequest) {
     console.log(msg);
   };
 
+  const processedLogIds: string[] = [];
+
   try {
     const body = await req.json();
     const { logs, lastPulledAt } = body;
@@ -78,10 +221,11 @@ export async function POST(req: NextRequest) {
         return 3;
       };
 
-      // Compact logs: keep only the latest log entry for each recordId
+      // Compact logs: keep only the latest log entry for each record+id pair
       const compactedMap = new Map<string, any>();
       for (const log of logs) {
-        compactedMap.set(log.recordId, log);
+        const compactedKey = `${log.modelName}:${log.recordId}`;
+        compactedMap.set(compactedKey, log);
       }
       const compactedLogs = Array.from(compactedMap.values());
       await logDebug(`[Vercel Sync] Compacted to ${compactedLogs.length} unique records.`);
@@ -89,14 +233,32 @@ export async function POST(req: NextRequest) {
       // Sort logs by priority so that base dependencies are created before child transactions
       const sortedLogs = [...compactedLogs].sort((a, b) => getModelPriority(a.modelName) - getModelPriority(b.modelName));
 
+      const expandedLogsByKey = new Map<string, any>();
+      for (const log of sortedLogs) {
+        const key = `${log.modelName}:${log.recordId}`;
+        if (!expandedLogsByKey.has(key)) {
+          expandedLogsByKey.set(key, {
+            ...log,
+            data: log.data,
+          });
+        }
+
+        if ((log.action === 'CREATE' || log.action === 'UPDATE') && log.data) {
+          await resolveDependenciesFromRecord(prisma, log.data, log.modelName, expandedLogsByKey);
+        }
+      }
+
+      const expandedLogs = Array.from(expandedLogsByKey.values()).sort((a, b) => getModelPriority(a.modelName) - getModelPriority(b.modelName));
+
       const operations: any[] = [];
       const deleteLogs: any[] = [];
 
-      for (const log of sortedLogs) {
+      for (const log of expandedLogs) {
         const camelCaseModel = log.modelName.charAt(0).toLowerCase() + log.modelName.slice(1);
 
         if (log.action === 'DELETE') {
           deleteLogs.push(log);
+          processedLogIds.push(log.logId || log.id);
           continue;
         }
 
@@ -157,9 +319,10 @@ export async function POST(req: NextRequest) {
             );
           }
         } else {
+          const upsertWhere = getUpsertWhere(log.modelName, log.data, log.recordId);
           operations.push(
             (prisma as any)[camelCaseModel].upsert({
-              where: { id: log.recordId },
+              where: upsertWhere,
               create: { ...log.data, id: log.recordId },
               update: log.data,
             })
@@ -184,6 +347,7 @@ export async function POST(req: NextRequest) {
                 action: 'DELETE',
               }
             });
+            processedLogIds.push(log.logId || log.id);
           } catch (e) {
             // Ignore if already deleted
           }
@@ -370,6 +534,7 @@ export async function POST(req: NextRequest) {
   return NextResponse.json({
       success: true,
       processedCount: Array.isArray(logs) ? logs.length : 0,
+      syncedLogIds: processedLogIds,
       changes: cloudChanges,
       timestamp: serverTimestamp,
     });

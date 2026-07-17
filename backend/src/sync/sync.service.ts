@@ -69,6 +69,133 @@ export class SyncService implements OnModuleInit, OnModuleDestroy {
     }
   }
 
+  private lowerFirst(value: string) {
+    return value.charAt(0).toLowerCase() + value.slice(1);
+  }
+
+  private getIncludeForModel(modelName: string) {
+    const include: any = {};
+    if (modelName === 'SalesOrder' || modelName === 'PurchaseOrder') {
+      include.items = true;
+    } else if (modelName === 'Bom') {
+      include.components = true;
+    }
+    return Object.keys(include).length > 0 ? include : undefined;
+  }
+
+  private async fetchRecord(modelName: string, recordId: string) {
+    const camelCaseModel = this.lowerFirst(modelName);
+    try {
+      const include = this.getIncludeForModel(modelName);
+      return await (this.prisma as any)[camelCaseModel].findUnique({
+        where: { id: recordId },
+        ...(include ? { include } : {}),
+      });
+    } catch (e) {
+      console.error(`[Sync Service] Failed to fetch dependency record ${modelName}(${recordId}):`, e);
+      return null;
+    }
+  }
+
+  private async ensureDependency(logsByKey: Map<string, any>, modelName: string, recordId: string, extraLogs: any[]) {
+    const key = `${modelName}:${recordId}`;
+    if (logsByKey.has(key)) return;
+
+    const recordData = await this.fetchRecord(modelName, recordId);
+    if (!recordData) return;
+
+    const dependencyLog = {
+      logId: '',
+      modelName,
+      recordId,
+      action: 'CREATE',
+      data: recordData,
+    };
+
+    logsByKey.set(key, dependencyLog);
+    extraLogs.push(dependencyLog);
+    await this.resolveDependenciesFromRecord(recordData, modelName, logsByKey, extraLogs);
+  }
+
+  private async resolveDependenciesFromRecord(record: any, modelName: string, logsByKey: Map<string, any>, extraLogs: any[]) {
+    if (!record || typeof record !== 'object') return;
+
+    const add = async (depModel: string, depId?: string | null) => {
+      if (!depId) return;
+      await this.ensureDependency(logsByKey, depModel, depId, extraLogs);
+    };
+
+    switch (modelName) {
+      case 'Product':
+        await add('Category', record.categoryId);
+        break;
+      case 'Category':
+        await add('Category', record.parentId);
+        break;
+      case 'SalesOrder':
+        await add('User', record.createdById);
+        await add('Customer', record.customerId);
+        await add('Branch', record.branchId);
+        if (Array.isArray(record.items)) {
+          for (const item of record.items) {
+            await add('Product', item.productId);
+          }
+        }
+        break;
+      case 'PurchaseOrder':
+        await add('User', record.createdById);
+        await add('Supplier', record.supplierId);
+        await add('Branch', record.branchId);
+        if (Array.isArray(record.items)) {
+          for (const item of record.items) {
+            await add('Product', item.productId);
+          }
+        }
+        break;
+      case 'Bom':
+        await add('Product', record.finishedProductId);
+        if (Array.isArray(record.components)) {
+          for (const component of record.components) {
+            await add('Product', component.productId);
+          }
+        }
+        break;
+      case 'SalesOrderItem':
+      case 'PurchaseOrderItem':
+      case 'BomComponent':
+        await add('Product', record.productId);
+        break;
+      case 'ProductionOrder':
+        await add('Bom', record.bomId);
+        await add('Branch', record.branchId);
+        break;
+      case 'Stock':
+        await add('Product', record.productId);
+        await add('Branch', record.branchId);
+        await add('Warehouse', record.warehouseId);
+        break;
+      case 'StockMovement':
+        await add('Product', record.productId);
+        break;
+      case 'SalesInvoice':
+        await add('SalesOrder', record.salesOrderId);
+        break;
+      case 'PurchaseInvoice':
+        await add('PurchaseOrder', record.purchaseOrderId);
+        break;
+      default:
+        // Generic fields for any model
+        await add('Product', record.productId);
+        await add('Category', record.categoryId);
+        await add('Branch', record.branchId);
+        await add('User', record.createdById);
+        await add('Customer', record.customerId);
+        await add('Supplier', record.supplierId);
+        await add('Warehouse', record.warehouseId);
+        break;
+    }
+  }
+
   async runSync() {
     if (this.isSyncing) return;
     this.isSyncing = true;
@@ -80,40 +207,46 @@ export class SyncService implements OnModuleInit, OnModuleDestroy {
         take: 10,
       });
 
-      const batch: any[] = [];
+      const logsByKey = new Map<string, any>();
+      const originalLogKeys: string[] = [];
+
+      const getKey = (modelName: string, recordId: string) => `${modelName}:${recordId}`;
+
+      const modelPriority = (modelName: string) => {
+        if (['Role', 'Branch', 'Category', 'Warehouse', 'User'].includes(modelName)) return 1;
+        if (['Customer', 'Supplier', 'Product', 'Stock', 'StockMovement', 'Bom', 'ProductionOrder'].includes(modelName)) return 2;
+        if (['SalesOrder', 'PurchaseOrder', 'SalesInvoice', 'PurchaseInvoice'].includes(modelName)) return 3;
+        return 4;
+      };
+
       for (const log of unsyncedLogs) {
+        const key = getKey(log.modelName, log.recordId);
+        originalLogKeys.push(key);
+
         let recordData = null;
-
         if (log.action === 'CREATE' || log.action === 'UPDATE') {
-          const camelCaseModel = log.modelName.charAt(0).toLowerCase() + log.modelName.slice(1);
-          
-          const include: any = {};
-          if (log.modelName === 'SalesOrder') {
-            include.items = true;
-          } else if (log.modelName === 'PurchaseOrder') {
-            include.items = true;
-          } else if (log.modelName === 'Bom') {
-            include.components = true;
-          }
-
-          try {
-            recordData = await (this.prisma[camelCaseModel] as any).findUnique({
-              where: { id: log.recordId },
-              ...(Object.keys(include).length > 0 ? { include } : {}),
-            });
-          } catch (e) {
-            console.error(`[Sync Service] Failed to fetch local record for model ${log.modelName} (ID: ${log.recordId}):`, e);
-          }
+          recordData = await this.fetchRecord(log.modelName, log.recordId);
         }
 
-        batch.push({
+        logsByKey.set(key, {
           logId: log.id,
           modelName: log.modelName,
           recordId: log.recordId,
           action: log.action,
           data: recordData,
         });
+
+        if (recordData && (log.action === 'CREATE' || log.action === 'UPDATE')) {
+          await this.resolveDependenciesFromRecord(recordData, log.modelName, logsByKey, []);
+        }
       }
+
+      const batch = Array.from(logsByKey.values()).sort((a, b) => {
+        const priorityDiff = modelPriority(a.modelName) - modelPriority(b.modelName);
+        if (priorityDiff !== 0) return priorityDiff;
+        if (a.modelName !== b.modelName) return a.modelName.localeCompare(b.modelName);
+        return a.recordId.localeCompare(b.recordId);
+      });
 
       const syncTarget = process.env.SYNC_TARGET_URL!;
       const syncSecret = process.env.SYNC_SECRET!;
@@ -138,17 +271,9 @@ export class SyncService implements OnModuleInit, OnModuleDestroy {
       const result = await response.json();
       console.log(`[Sync Service] Sync batch successful. remote response received.`);
 
-      // 1. Mark successfully synced local logs as synced
-      if (unsyncedLogs.length > 0) {
-        const successfullySyncedLogIds = unsyncedLogs.map(l => l.id);
-        await (this.prisma as any).syncLog.updateMany({
-          where: { id: { in: successfullySyncedLogIds } },
-          data: { synced: true },
-        });
-        console.log(`[Sync Service] Marked ${successfullySyncedLogIds.length} changes as synced locally.`);
-      }
+      let remoteApplySucceeded = true;
 
-      // 2. Apply remote changes locally
+      // 1. Apply remote changes locally before marking local logs as synced
       if (result.success && Array.isArray(result.changes) && result.changes.length > 0) {
         console.log(`[Sync Service] Applying ${result.changes.length} remote changes locally...`);
         (global as any).isSyncingRemote = true;
@@ -208,9 +333,17 @@ export class SyncService implements OnModuleInit, OnModuleDestroy {
                   await tx.bomComponent.createMany({ data: cleanComponents });
                 }
               } else {
+                const whereClause = change.modelName === 'Branch'
+                  ? { code: change.data?.code || change.recordId }
+                  : change.modelName === 'Role'
+                    ? { name: change.data?.name || change.recordId }
+                    : change.modelName === 'User'
+                      ? { email: change.data?.email || change.recordId }
+                      : { id: change.recordId };
+
                 await (tx[camelCaseModel] as any).upsert({
-                  where: { id: change.recordId },
-                  create: change.data,
+                  where: whereClause,
+                  create: { ...change.data, id: change.recordId },
                   update: change.data,
                 });
               }
@@ -219,14 +352,28 @@ export class SyncService implements OnModuleInit, OnModuleDestroy {
           }, { timeout: 30000 });
           console.log(`[Sync Service] Remote changes applied successfully.`);
         } catch (err: any) {
+          remoteApplySucceeded = false;
           console.error(`[Sync Service] Failed to apply remote changes:`, err.message || err);
         } finally {
           (global as any).isSyncingRemote = false;
         }
       }
 
-      // 3. Update the last pulled timestamp
-      if (result.success && result.timestamp) {
+      // 2. Mark local logs as synced only after the pull step succeeded
+      if (result.success && remoteApplySucceeded && unsyncedLogs.length > 0) {
+        const successfullySyncedLogIds = Array.isArray(result.syncedLogIds) && result.syncedLogIds.length > 0
+          ? result.syncedLogIds
+          : unsyncedLogs.map((l: any) => l.id);
+
+        await (this.prisma as any).syncLog.updateMany({
+          where: { id: { in: successfullySyncedLogIds } },
+          data: { synced: true },
+        });
+        console.log(`[Sync Service] Marked ${successfullySyncedLogIds.length} changes as synced locally.`);
+      }
+
+      // 3. Update the last pulled timestamp only after the pull step succeeded
+      if (result.success && remoteApplySucceeded && result.timestamp) {
         this.saveLastPulledAt(result.timestamp);
       }
 

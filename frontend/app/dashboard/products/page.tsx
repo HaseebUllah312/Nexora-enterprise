@@ -52,37 +52,78 @@ export default function ProductsPage() {
           return;
         }
 
-        const headers = data[0].map(h => String(h || '').trim());
-        const rows = data.slice(1);
+        const normalizeHeader = (value: string) => String(value || '').trim().toLowerCase().replace(/[^a-z0-9]/g, '');
+        const headerCandidates = [
+          ['productname', 'name', 'itemname'],
+          ['itemcode', 'productcode', 'code', 'sku', 'barcode'],
+          ['purchaseprice', 'purchase', 'buyprice', 'cost'],
+          ['saleprice', 'sale', 'sellingprice', 'price'],
+          ['group', 'category', 'groupname', 'categoryname'],
+        ];
 
-        const mappedProducts = rows.map(row => {
-          const getVal = (colName: string) => {
-            const index = headers.findIndex(h => h.toLowerCase().includes(colName.toLowerCase()));
-            return index !== -1 ? row[index] : undefined;
-          };
+        const headerMatches = (header: string, candidate: string) => {
+          const normalizedHeader = normalizeHeader(header);
+          const normalizedCandidate = normalizeHeader(candidate);
+          return normalizedHeader.includes(normalizedCandidate) || normalizedCandidate.includes(normalizedHeader);
+        };
 
-          const type = String(getVal('type') || 'Product').trim();
-          const categoryName = String(getVal('group') || getVal('category') || '').trim();
-          const brand = getVal('brand') ? String(getVal('brand')).trim() : null;
-          const productCode = String(getVal('item code') || getVal('code') || '').trim();
-          const name = String(getVal('product name') || getVal('name') || '').trim();
-          const unit = String(getVal('unit') || 'PCS').trim();
-          const openingStock = Number(getVal('opening stock') || 0);
-          const purchasePrice = Number(getVal('purchase price') || getVal('purchase') || 0);
-          const salePrice = Number(getVal('sale price') || getVal('sale') || 0);
+        const scoreHeaderRow = (row: any[]) => {
+          const normalizedRow = row.map(cell => normalizeHeader(String(cell || '')));
+          return headerCandidates.reduce((score, group) => {
+            return score + (group.some(candidate => normalizedRow.some(cell => headerMatches(cell, candidate))) ? 1 : 0);
+          }, 0);
+        };
+
+        const headerRowIndex = data.slice(0, Math.min(data.length, 5)).reduce((best, row, index) => {
+          const score = scoreHeaderRow(row);
+          return score > best.score ? { index, score } : best;
+        }, { index: 0, score: 0 }).index;
+
+        const headers = data[headerRowIndex].map(h => String(h || '').trim());
+        const rows = data.slice(headerRowIndex + 1);
+
+        const getVal = (row: any[], candidates: string[]) => {
+          const normalizedCandidates = candidates.map(normalizeHeader);
+          const index = headers.findIndex((header) => {
+            const normalizedHeader = normalizeHeader(header);
+            return normalizedCandidates.some(candidate =>
+              normalizedHeader.includes(candidate) || candidate.includes(normalizedHeader)
+            );
+          });
+          return index !== -1 ? row[index] : undefined;
+        };
+
+        const mappedProducts = rows.map((row, rowIndex) => {
+          const fallbackCode = `AUTO-${String(rowIndex + 2).padStart(4, '0')}`;
+          const productCode = String(getVal(row, ['itemcode', 'productcode', 'code', 'sku']) || fallbackCode).trim();
+          const name = String(getVal(row, ['productname', 'name', 'itemname']) || '').trim();
+          const unit = String(getVal(row, ['unit', 'uom', 'measure']) || 'PCS').trim();
+          const openingStock = Number(getVal(row, ['openingstock', 'openingstockqty', 'stock']) || 0);
+          const purchasePrice = Number(getVal(row, ['purchaseprice', 'purchase', 'buyprice', 'cost']) || 0);
+          const salePrice = Number(getVal(row, ['saleprice', 'sale', 'sellingprice', 'price']) || 0);
+          const minimumStock = Number(getVal(row, ['minimumstock', 'minstock', 'reorderlevel']) || 0);
+          const categoryName = String(getVal(row, ['group', 'category', 'categoryname', 'groupname']) || '').trim();
+          const brand = getVal(row, ['brand', 'brandname']) ? String(getVal(row, ['brand', 'brandname'])).trim() : null;
+          const barcode = getVal(row, ['barcode', 'barcodeno']) ? String(getVal(row, ['barcode', 'barcodeno'])).trim() : null;
+          const size = getVal(row, ['size', 'dimension', 'sizes']) ? String(getVal(row, ['size', 'dimension', 'sizes'])).trim() : null;
+          const isRawMaterial = String(getVal(row, ['rawmaterial', 'type']) || '').toLowerCase().includes('raw');
 
           return {
             categoryName,
             brand,
             productCode,
-            sku: productCode,
+            sku: String(getVal(row, ['sku', 'itemcode', 'productcode', 'code']) || productCode).trim(),
             name,
             unit,
             openingStock,
             purchasePrice,
-            salePrice
+            salePrice,
+            minimumStock,
+            barcode,
+            size,
+            isRawMaterial,
           };
-        }).filter(p => p.name && p.productCode);
+        }).filter(p => p.name);
 
         if (mappedProducts.length === 0) {
           alert('No valid products found to import. Please check column headers (e.g. Product Name, Item Code, Sale Price, Group).');

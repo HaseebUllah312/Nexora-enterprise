@@ -119,7 +119,7 @@ export class ProductsService {
     // --- Step 1: Pre-resolve all unique category names in one pass ---
     const categoryCache: Map<string, string> = new Map();
     const uniqueCategoryNames = [...new Set(
-      dtoList.map(item => String(item.categoryName || '').trim()).filter(Boolean)
+      dtoList.map(item => String(item.categoryName || item.category?.name || '').trim()).filter(Boolean)
     )];
     for (const catName of uniqueCategoryNames) {
       let cat = await this.prisma.category.findFirst({ where: { name: catName } });
@@ -133,41 +133,113 @@ export class ProductsService {
     for (let i = 0; i < dtoList.length; i++) {
       const item = dtoList[i];
       try {
-        const productCode = String(item.productCode || '').trim();
-        const sku = String(item.sku || productCode || '').trim();
         const name = String(item.name || '').trim();
-        const unit = String(item.unit || 'PCS').trim();
-        const purchasePrice = Number(item.purchasePrice || 0);
-        const salePrice = Number(item.salePrice || 0);
-        const openingStock = Number(item.openingStock || 0);
-        const brand = item.brand ? String(item.brand).trim() : null;
-        const catName = String(item.categoryName || '').trim();
-        const categoryId = catName ? (categoryCache.get(catName) ?? null) : null;
-
-        // Skip rows with missing required fields
-        if (!productCode || !name) {
-          errors.push({ row: i + 2, reason: 'Missing productCode or name', item });
+        if (!name) {
+          errors.push({ row: i + 2, reason: 'Missing product name', item });
           continue;
         }
 
+        const productCode = String(item.productCode || item.code || '').trim();
+        const sku = String(item.sku || item.productCode || item.code || '').trim();
+        const unit = String(item.unit || 'PCS').trim();
+        const purchasePrice = Number(item.purchasePrice || item.purchase || 0);
+        const salePrice = Number(item.salePrice || item.sale || 0);
+        const openingStock = Number(item.openingStock || item.openingStockQty || 0);
+        const brand = item.brand ? String(item.brand).trim() : null;
+        const barcode = item.barcode ? String(item.barcode).trim() : null;
+        const size = item.size ? String(item.size).trim() : null;
+        const minimumStock = Number(item.minimumStock || item.minStock || 0);
+        const isRawMaterial = Boolean(
+          item.isRawMaterial === true ||
+          item.isRawMaterial === 'true' ||
+          String(item.isRawMaterial || item.type || '').toLowerCase().includes('raw')
+        );
+        const catName = String(item.categoryName || item.category?.name || '').trim();
+        const categoryId = catName ? (categoryCache.get(catName) ?? null) : null;
+
+        const finalProductCode = (productCode || `AUTO-${String(i + 1).padStart(4, '0')}`).trim();
+        const finalSku = (sku || finalProductCode).trim();
+
         const existingProduct = await this.prisma.product.findFirst({
-          where: { OR: [{ productCode }, { sku }] }
+          where: {
+            OR: [
+              ...(finalProductCode ? [{ productCode: finalProductCode }] : []),
+              ...(finalSku ? [{ sku: finalSku }] : []),
+              ...(barcode ? [{ barcode }] : []),
+            ],
+          },
         });
 
         if (existingProduct) {
-          // Update existing product
           const updated = await this.prisma.product.update({
             where: { id: existingProduct.id },
-            data: { name, purchasePrice, salePrice, brand, categoryId }
-          });
-          results.push({ ...updated, status: 'updated' });
-        } else {
-          // Create new product
-          const newProduct = await this.prisma.product.create({
-            data: { sku, productCode, name, unit, purchasePrice, salePrice, openingStock, brand, categoryId }
+            data: {
+              sku: finalSku,
+              productCode: finalProductCode,
+              name,
+              unit,
+              purchasePrice,
+              salePrice,
+              brand,
+              barcode,
+              size,
+              categoryId,
+              minimumStock,
+              isRawMaterial,
+              isActive: true,
+            },
           });
 
-          // Upsert stock record to avoid unique-constraint crash when batchNumber is ''
+          if (openingStock > 0 && firstWarehouse) {
+            await this.prisma.stock.upsert({
+              where: {
+                productId_warehouseId_batchNumber: {
+                  productId: updated.id,
+                  warehouseId: firstWarehouse.id,
+                  batchNumber: '',
+                }
+              },
+              create: {
+                productId: updated.id,
+                warehouseId: firstWarehouse.id,
+                branchId: firstWarehouse.branchId,
+                quantity: openingStock,
+                batchNumber: '',
+              },
+              update: { quantity: openingStock },
+            });
+
+            await this.prisma.stockMovement.create({
+              data: {
+                productId: updated.id,
+                quantity: openingStock,
+                type: 'STOCK_IN',
+                notes: 'Opening stock from Excel import',
+              },
+            });
+          }
+
+          results.push({ ...updated, status: 'updated' });
+        } else {
+          const newProduct = await this.prisma.product.create({
+            data: {
+              sku: finalSku,
+              productCode: finalProductCode,
+              name,
+              unit,
+              purchasePrice,
+              salePrice,
+              openingStock,
+              brand,
+              barcode,
+              size,
+              categoryId,
+              minimumStock,
+              isRawMaterial,
+              isActive: true,
+            },
+          });
+
           if (openingStock > 0 && firstWarehouse) {
             await this.prisma.stock.upsert({
               where: {
@@ -193,13 +265,13 @@ export class ProductsService {
                 quantity: openingStock,
                 type: 'STOCK_IN',
                 notes: 'Opening stock from Excel import',
-              }
+              },
             });
           }
+
           results.push({ ...newProduct, status: 'created' });
         }
       } catch (err: any) {
-        // Log and continue — don't let one row abort the whole import
         errors.push({ row: i + 2, reason: err.message || 'Unknown error', item });
         console.error(`[ImportProducts] Row ${i + 2} failed:`, err.message);
       }
@@ -209,7 +281,7 @@ export class ProductsService {
       success: true,
       count: results.length,
       errorCount: errors.length,
-      errors: errors.slice(0, 20), // return first 20 errors max
+      errors: errors.slice(0, 20),
       data: results,
     };
   }
